@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -16,7 +17,7 @@ import customtkinter as ctk
 from templates import TEMPLATES
 from docx_export import export_to_docx
 from template_parser import extract_placeholders, create_filled_document
-from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview
+from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
 from engine.bold_template_miner import mine_docx
 from engine.template_deduplicator import fingerprint_docx, classify_duplicate
 from engine.section_repeater import detect_repeated_person_sections
@@ -38,6 +39,8 @@ class AffidavitStudio:
         self.mode = tk.StringVar(value="builtin")
         self.current_template = tk.StringVar(value="Waras (Heirship) Affidavit")
         self.use_ism = tk.BooleanVar(value=False)
+        self.preview_font_family = tk.StringVar(value="Mangal")
+        self.available_preview_fonts = []
         self.custom_template_path = None
         self.custom_placeholders = []
 
@@ -181,7 +184,25 @@ class AffidavitStudio:
         self.zoom_level = tk.IntVar(value=14)
         ctk.CTkButton(right_header, text="A-", width=32, height=26, fg_color="#475569", command=self._zoom_out).pack(side="right", padx=4)
         ctk.CTkButton(right_header, text="A+", width=32, height=26, fg_color="#475569", command=self._zoom_in).pack(side="right", padx=2)
-        ctk.CTkLabel(right_header, text="फॉन्ट आकार:", font=("Mangal", 11), text_color="#CBD5E1").pack(side="right", padx=4)
+        ctk.CTkLabel(right_header, text="आकार:", font=("Mangal", 11), text_color="#CBD5E1").pack(side="right", padx=4)
+
+        # Select a locally installed Windows font for the preview. Word export
+        # retains source document formatting; this selector controls GUI preview.
+        try:
+            installed = list(tkfont.families(self.root))
+        except tk.TclError:
+            installed = []
+        preferred = ["Mangal", "DVBW Series", "DVBW-TTSurekh", "ISM", "Arial", "Segoe UI"]
+        self.available_preview_fonts = sorted(set(installed + preferred), key=str.casefold)
+        font_row = ctk.CTkFrame(right_header, fg_color="transparent")
+        font_row.pack(side="left", padx=10)
+        ctk.CTkLabel(font_row, text="Preview Font:", font=("Segoe UI", 11), text_color="#CBD5E1").pack(side="left", padx=(0, 5))
+        self.preview_font_combo = ctk.CTkComboBox(
+            font_row, values=self.available_preview_fonts,
+            variable=self.preview_font_family, width=190,
+            command=self.on_preview_font_change
+        )
+        self.preview_font_combo.pack(side="left")
 
         # A4 Paper Container
         self.paper_frame = ctk.CTkFrame(self.right_pane, corner_radius=8, fg_color="#334155")
@@ -190,7 +211,7 @@ class AffidavitStudio:
         # Paper Sheet (White clean canvas for high contrast legal document preview)
         self.preview_text = tk.Text(
             self.paper_frame,
-            font=("Mangal", 14),
+            font=(self.preview_font_family.get(), 14),
             wrap="word",
             bg="#FFFFFF",
             fg="#0F172A",
@@ -203,20 +224,39 @@ class AffidavitStudio:
         self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
 
         # Config text tags for bold/highlight
-        self.preview_text.tag_configure("heading", font=("Mangal", 16, "bold"), justify="center")
+        self.preview_text.tag_configure("heading", font=(self.preview_font_family.get(), 16, "bold"), justify="center")
         self.preview_text.tag_configure("highlight", background="#FEF08A", foreground="#000000")
+
+    def on_preview_font_change(self, selected=None):
+        """Apply the user's selected installed font to the live text preview."""
+        family = (selected or self.preview_font_family.get() or "Mangal").strip()
+        self.preview_font_family.set(family)
+        size = self.zoom_level.get()
+        self.preview_text.configure(font=(family, size))
+        self.preview_text.tag_configure("heading", font=(family, size + 2, "bold"))
+
+    def _set_preview_font(self, family):
+        """Select a font detected from a loaded DOCX when available."""
+        if not family:
+            return
+        installed = {name.casefold(): name for name in self.available_preview_fonts}
+        matched = installed.get(family.casefold(), family)
+        self.preview_font_family.set(matched)
+        if hasattr(self, "preview_font_combo"):
+            self.preview_font_combo.set(matched)
+        self.on_preview_font_change(matched)
 
     def _zoom_in(self):
         sz = self.zoom_level.get() + 1
         if sz <= 24:
             self.zoom_level.set(sz)
-            self.preview_text.configure(font=("Mangal", sz))
+            self.on_preview_font_change()
 
     def _zoom_out(self):
         sz = self.zoom_level.get() - 1
         if sz >= 10:
             self.zoom_level.set(sz)
-            self.preview_text.configure(font=("Mangal", sz))
+            self.on_preview_font_change()
 
     def on_template_change(self, event=None):
         """Build dynamic fields for selected template."""
@@ -227,6 +267,11 @@ class AffidavitStudio:
         self.heir_entries = []
 
         template_name = self.current_template.get()
+        if template_name in TEMPLATES and TEMPLATES[template_name].get("preview_font_hint"):
+            hint = TEMPLATES[template_name]["preview_font_hint"].casefold()
+            candidate = next((f for f in self.available_preview_fonts if hint in f.casefold()), None)
+            if candidate:
+                self._set_preview_font(candidate)
 
         if template_name in self.mined_templates_library:
             self._build_mined_template_form(template_name)
@@ -509,6 +554,7 @@ class AffidavitStudio:
         try:
             name = Path(file_path).stem.replace("_", " ").title()
             detected = extract_docx_fields(file_path)
+            detected_font = detect_docx_font_family(file_path)
             if not detected:
                 proceed = messagebox.askyesno(
                     "Placeholders आढळले नाहीत",
@@ -524,6 +570,8 @@ class AffidavitStudio:
                 self.template_combo.configure(values=current_vals)
             self.current_template.set(name)
             self.on_template_change()
+            if detected_font:
+                self._set_preview_font(detected_font)
             messagebox.showinfo("यशस्वी", f"कस्टम टेम्पलेट लोड झाले: {name}")
         except Exception as e:
             messagebox.showerror("त्रुटी", f"टेम्पलेट लोड करताना त्रुटी आली: {e}")
