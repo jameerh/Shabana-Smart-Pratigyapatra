@@ -535,7 +535,7 @@ def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=Fal
             draw = ImageDraw.Draw(canvas)
             draw.rectangle((8, 8, 592, 592), outline="#8B5E3C", width=8)
             draw.rectangle((28, 28, 572, 572), outline="#8B5E3C", width=2)
-            draw.text((300, 180), "₹500", fill="#8B5E3C", anchor="mm")
+            draw.text((300, 180), "RS. 500", fill="#8B5E3C", anchor="mm")
             draw.text((300, 270), "STAMP PAPER", fill="#8B5E3C", anchor="mm")
             draw.text((300, 350), "PREVIEW ONLY", fill="#8B5E3C", anchor="mm")
             canvas.save(stamp_image.name)
