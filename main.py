@@ -17,7 +17,7 @@ from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 
 from templates import TEMPLATES
-from docx_export import export_to_docx, export_legacy_text_docx
+from docx_export import export_to_docx, export_legacy_text_docx, ISM_AVAILABLE, unicode_to_ism
 from engine.docx_preview_renderer import render_docx_pages, PreviewRenderError
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
@@ -583,9 +583,18 @@ class AffidavitStudio:
                      to_int(data.get(f"income{i}_other", "0")))
                 data[f"total{i}"] = f"{t}/-"
 
+        # Legacy DVBW templates contain legacy-encoded static text. Convert only
+        # Unicode values entered in the form, not the template body itself.
+        format_data = dict(data)
+        if template_info.get("preview_font_hint") and ISM_AVAILABLE:
+            for field in template_info.get("fields", []):
+                value = format_data.get(field)
+                if isinstance(value, str) and value:
+                    format_data[field] = unicode_to_ism(value)
+
         try:
             # Format preview text safely
-            filled = template_info["template"].format(**data)
+            filled = template_info["template"].format(**format_data)
             self.preview_text.insert("1.0", stamp_guide + filled)
             if stamp_guide:
                 self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
@@ -595,7 +604,7 @@ class AffidavitStudio:
             safe_data = {k: (data.get(k) or f"[{k}]") for k in template_info["fields"]}
             safe_data.update(data)
             try:
-                filled = template_info["template"].format(**safe_data)
+                filled = template_info["template"].format(**{**safe_data, **format_data})
                 self.preview_text.insert("1.0", stamp_guide + filled)
                 if stamp_guide:
                     self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
