@@ -145,18 +145,20 @@ def detect_docx_font_family(docx_path: str | Path) -> str | None:
             section.first_page_header, section.first_page_footer,
             section.even_page_header, section.even_page_footer,
         ])
+    from collections import Counter
+
+    counts: Counter[str] = Counter()
     for container in containers:
         for paragraph in _iter_paragraphs(container):
             for run in paragraph.runs:
                 name = (run.font.name or "").strip()
                 if name:
-                    return name
-        for table in getattr(container, "tables", []):
-            for row in table.rows:
-                for cell in row.cells:
-                    for paragraph in _iter_paragraphs(cell):
-                        for run in paragraph.runs:
-                            name = (run.font.name or "").strip()
-                            if name:
-                                return name
-    return None
+                    counts[name] += max(1, len(run.text.strip()))
+    if not counts:
+        return None
+    # Prefer a legacy Marathi font when present, rather than a one-off Latin
+    # heading font such as Arial or Calibri.
+    legacy = [name for name in counts if any(token in name.casefold() for token in ("dvbw", "ism", "shivaji", "kruti", "kiran"))]
+    if legacy:
+        return max(legacy, key=lambda name: counts[name])
+    return counts.most_common(1)[0][0]
