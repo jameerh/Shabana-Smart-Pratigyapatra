@@ -129,3 +129,34 @@ def build_docx_preview(docx_path: str | Path, data: dict[str, Any]) -> str:
             if text.strip():
                 lines.append(text)
     return "\n".join(lines).strip()
+
+
+def detect_docx_font_family(docx_path: str | Path) -> str | None:
+    """Return the first useful explicit font family found in document runs.
+
+    Word may inherit fonts from styles, so None means no explicit run font was
+    found; callers should then retain their current/default preview font.
+    """
+    doc = Document(str(docx_path))
+    containers = [doc]
+    for section in doc.sections:
+        containers.extend([
+            section.header, section.footer,
+            section.first_page_header, section.first_page_footer,
+            section.even_page_header, section.even_page_footer,
+        ])
+    for container in containers:
+        for paragraph in _iter_paragraphs(container):
+            for run in paragraph.runs:
+                name = (run.font.name or "").strip()
+                if name:
+                    return name
+        for table in getattr(container, "tables", []):
+            for row in table.rows:
+                for cell in row.cells:
+                    for paragraph in _iter_paragraphs(cell):
+                        for run in paragraph.runs:
+                            name = (run.font.name or "").strip()
+                            if name:
+                                return name
+    return None
