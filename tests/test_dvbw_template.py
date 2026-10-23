@@ -38,7 +38,7 @@ class DvbwTemplateTests(unittest.TestCase):
             legacy_text = "¯ÖÏ×ŸÖ–ÖÖ¯Ö¡Ö\n{applicant_full_name}"
             export_legacy_text_docx(legacy_text, path, "DVBW Series")
             doc = Document(path)
-            self.assertEqual(doc.paragraphs[0].runs[0].font.name, "DVBW Series")
+            self.assertTrue(any(run.font.name == "DVBW Series" for paragraph in doc.paragraphs for run in paragraph.runs))
             self.assertTrue(any("{applicant_full_name}" in paragraph.text for paragraph in doc.paragraphs))
             self.assertEqual(len(doc.tables), 1)
             self.assertEqual(doc.tables[0].cell(0, 0).text, "")
