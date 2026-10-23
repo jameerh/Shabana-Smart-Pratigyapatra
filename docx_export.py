@@ -497,7 +497,7 @@ def export_waras_filled(filename, data, taluka_name="", use_ism=False):
 
     doc.save(filename)
 
-def export_legacy_text_docx(text, filename, font_name):
+def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=False):
     """Export text that is already encoded for a legacy font without re-converting it.
 
     This path is for user-supplied legacy-encoded templates such as DVBW. It
@@ -524,6 +524,28 @@ def export_legacy_text_docx(text, filename, font_name):
     stamp_paragraph.paragraph_format.space_after = Pt(0)
     stamp_paragraph.paragraph_format.line_spacing = Pt(1)
     stamp_table.rows[0].height = Inches(2)
+    if include_stamp_preview:
+        # This dummy stamp graphic exists only in the temporary preview DOCX.
+        # Normal final export keeps the stamp cell completely blank.
+        from PIL import Image as PILImage, ImageDraw, ImageFont
+        stamp_image = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        stamp_image.close()
+        try:
+            canvas = PILImage.new("RGB", (600, 600), "white")
+            draw = ImageDraw.Draw(canvas)
+            draw.rectangle((8, 8, 592, 592), outline="#8B5E3C", width=8)
+            draw.rectangle((28, 28, 572, 572), outline="#8B5E3C", width=2)
+            draw.text((300, 180), "₹500", fill="#8B5E3C", anchor="mm")
+            draw.text((300, 270), "STAMP PAPER", fill="#8B5E3C", anchor="mm")
+            draw.text((300, 350), "PREVIEW ONLY", fill="#8B5E3C", anchor="mm")
+            canvas.save(stamp_image.name)
+            stamp_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            stamp_paragraph.add_run().add_picture(stamp_image.name, width=Inches(1.75), height=Inches(1.75))
+        finally:
+            try:
+                os.unlink(stamp_image.name)
+            except OSError:
+                pass
 
     # Leave a small gap after the stamp area before the affidavit begins.
     gap = doc.add_paragraph()
