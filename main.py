@@ -254,8 +254,21 @@ class AffidavitStudio:
                 ctk.CTkRadioButton(r_box, text="स्त्री", variable=gender_var, value="स्त्री", command=self.update_live_preview).pack(side="left", padx=5)
                 self.field_entries[field] = gender_var
             else:
-                label = field.replace("_", " ").title()
-                ctk.CTkLabel(card, text=f"{label}:", font=("Segoe UI", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
+                field_labels = {
+                    "applicant_full_name": "अर्जदाराचे पूर्ण नाव",
+                    "applicant_age": "वय (वर्षे)",
+                    "applicant_occupation": "व्यवसाय",
+                    "applicant_village": "गाव",
+                    "applicant_address": "पूर्ण पत्ता",
+                    "applicant_taluka": "तालुका",
+                    "applicant_district": "जिल्हा",
+                    "affidavit_place": "ठिकाण",
+                    "affidavit_date": "दिनांक",
+                    "income_year_range": "उत्पन्नाचे वर्ष",
+                    "annual_income": "एकूण वार्षिक उत्पन्न (रु.)",
+                }
+                label = field_labels.get(field, field.replace("_", " ").title())
+                ctk.CTkLabel(card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
                 entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
                 entry.pack(fill="x", padx=10, pady=(0, 6))
                 entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
