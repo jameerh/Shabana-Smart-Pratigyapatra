@@ -18,7 +18,7 @@ import customtkinter as ctk
 
 from templates import TEMPLATES
 from docx_export import export_to_docx, export_legacy_text_docx, ISM_AVAILABLE, unicode_to_ism
-from engine.docx_preview_renderer import render_docx_pages, PreviewRenderError
+from engine.docx_preview_renderer import render_docx_pages, convert_docx_to_pdf, PreviewRenderError
 from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
@@ -218,6 +218,11 @@ class AffidavitStudio:
         font_row = ctk.CTkFrame(right_header, fg_color="transparent")
         font_row.pack(side="left", padx=10)
         ctk.CTkLabel(font_row, text="Preview Font:", font=("Segoe UI", 11), text_color="#CBD5E1").pack(side="left", padx=(0, 5))
+        ctk.CTkButton(
+            font_row, text="Export PDF", width=86, height=28,
+            fg_color="#0F766E", hover_color="#115E59",
+            command=self.export_pdf
+        ).pack(side="left", padx=(8, 0))
         self.preview_font_combo = ctk.CTkComboBox(
             font_row, values=self.available_preview_fonts,
             variable=self.preview_font_family, width=190,
@@ -746,6 +751,42 @@ class AffidavitStudio:
         except Exception as e:
             messagebox.showerror("त्रुटी (Error)", f"Word फाइल तयार करताना त्रुटी आली:\n{e}")
 
+    def export_pdf(self):
+        """Export the current document as PDF through the local DOCX renderer."""
+        template_name = self.current_template.get()
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".pdf", filetypes=[("PDF document", "*.pdf")],
+            initialfile=f"{template_name.replace(' ', '_')}.pdf"
+        )
+        if not filename:
+            return
+        temp_dir = tempfile.TemporaryDirectory(prefix="shabana_pdf_export_")
+        docx_path = Path(temp_dir.name) / "export.docx"
+        try:
+            data = self.get_current_data()
+            if template_name in self.mined_templates_library:
+                create_filled_document(self.mined_templates_library[template_name], data, docx_path)
+            elif template_name in TEMPLATES:
+                text = self.preview_text.get("1.0", "end-1c")
+                text = re.sub(
+                    r"^┌─+┐\n│     ₹500 STAMP PAPER       │\n│      PREVIEW GUIDE ONLY    │\n│  FINAL DOCUMENT: BLANK     │\n└─+┘\n\n",
+                    "", text
+                )
+                if TEMPLATES[template_name].get("preview_font_hint"):
+                    export_legacy_text_docx(text, docx_path, self.preview_font_family.get())
+                else:
+                    export_to_docx(text, str(docx_path), barcode_data=None,
+                                   taluka_name=data.get("applicant_taluka", ""),
+                                   use_ism=self.use_ism.get())
+            else:
+                return
+            output = convert_docx_to_pdf(docx_path, filename)
+            messagebox.showinfo("PDF export", f"PDF saved successfully:\n{output}")
+        except Exception as exc:
+            messagebox.showerror("PDF export failed", str(exc))
+        finally:
+            temp_dir.cleanup()
+
     def load_custom_docx(self):
         """Mine placeholders from any single DOCX and add to studio."""
         file_path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx")])
@@ -753,6 +794,8 @@ class AffidavitStudio:
             return
         try:
             name = Path(file_path).stem.replace("_", " ").title()
+            history_dir = Path.home() / "Documents" / "Shabana Smart Pratigyapatra" / "template_history"
+            snapshot_template(file_path, history_dir, name)
             detected = extract_docx_fields(file_path)
             detected_font = detect_docx_font_family(file_path)
             if not detected:
