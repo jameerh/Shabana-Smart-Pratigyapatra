@@ -503,10 +503,11 @@ class AffidavitStudio:
                 return
             page_pngs = render_docx_pages(path)
             self._show_rendered_preview(page_pngs)
-        except (PreviewRenderError, Exception) as exc:
-            # Keep the existing text preview available and explain the dependency.
-            if not self.preview_pages_container.winfo_manager():
-                self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
+        except Exception as exc:
+            # Always fall back cleanly if rendering fails, including after a
+            # previously successful render.
+            self.preview_pages_container.pack_forget()
+            self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
             self._set_preview_status(f"Word-page preview unavailable: {exc}")
         finally:
             temp_dir.cleanup()
@@ -683,6 +684,11 @@ class AffidavitStudio:
                 create_filled_document(self.mined_templates_library[template_name], data, filename)
             else:
                 filled_text = self.preview_text.get("1.0", "end").strip()
+                # Remove the UI-only stamp guide; the final DOCX reserves a blank area.
+                filled_text = re.sub(
+                    r"^┌─+┐\n│     ₹500 STAMP PAPER       │\n│      PREVIEW GUIDE ONLY    │\n│  FINAL DOCUMENT: BLANK     │\n└─+┘\n\n",
+                    "", filled_text
+                )
                 taluka = data.get("applicant_taluka", "")
                 if TEMPLATES[template_name].get("preview_font_hint"):
                     # The DVBW sample is already legacy-encoded; do not pass it
