@@ -203,6 +203,14 @@ class AffidavitStudio:
             command=self.on_preview_font_change
         )
         self.preview_font_combo.pack(side="left")
+        self.font_search_var = tk.StringVar()
+        self.font_search_entry = ctk.CTkEntry(
+            font_row, textvariable=self.font_search_var, width=150,
+            placeholder_text="Type font name…"
+        )
+        self.font_search_entry.pack(side="left", padx=(6, 0))
+        self.font_search_entry.bind("<KeyRelease>", self._filter_preview_fonts)
+        self.font_search_entry.bind("<Return>", self._apply_typed_preview_font)
 
         # A4 Paper Container
         self.paper_frame = ctk.CTkFrame(self.right_pane, corner_radius=8, fg_color="#334155")
@@ -226,6 +234,29 @@ class AffidavitStudio:
         # Config text tags for bold/highlight
         self.preview_text.tag_configure("heading", font=(self.preview_font_family.get(), 16, "bold"), justify="center")
         self.preview_text.tag_configure("highlight", background="#FEF08A", foreground="#000000")
+
+    def _filter_preview_fonts(self, event=None):
+        """Filter the font dropdown as the user types a family name."""
+        query = self.font_search_var.get().strip().casefold()
+        matches = [font for font in self.available_preview_fonts if query in font.casefold()]
+        self.preview_font_combo.configure(values=matches or self.available_preview_fonts)
+        if len(matches) == 1:
+            self.preview_font_combo.set(matches[0])
+
+    def _apply_typed_preview_font(self, event=None):
+        """Apply a typed font name when it matches an installed family."""
+        typed = self.font_search_var.get().strip()
+        if not typed:
+            return
+        exact = next((font for font in self.available_preview_fonts if font.casefold() == typed.casefold()), None)
+        partial = [font for font in self.available_preview_fonts if typed.casefold() in font.casefold()]
+        selected = exact or (partial[0] if len(partial) == 1 else None)
+        if selected:
+            self.preview_font_combo.set(selected)
+            self._set_preview_font(selected)
+        elif partial:
+            self.preview_font_combo.configure(values=partial)
+            self.preview_font_combo.set(partial[0])
 
     def on_preview_font_change(self, selected=None):
         """Apply the user's selected installed font to the live text preview."""
