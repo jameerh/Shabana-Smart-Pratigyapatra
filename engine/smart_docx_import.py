@@ -14,7 +14,7 @@ from docx import Document
 
 # Keep square brackets non-greedy and on one line to avoid swallowing prose.
 PLACEHOLDER_PATTERN = re.compile(
-    r"\\[([^\\[\\]\\r\\n]{1,100})\\]|\\{([^{}\\r\\n]{1,100})\\}"
+    r"\[([^\[\]\r\n]{1,100})\]|\{([^{}\r\n]{1,100})\}"
 )
 
 KNOWN_LABELS = {
@@ -77,7 +77,7 @@ def extract_docx_fields(docx_path: str | Path) -> list[dict[str, str]]:
 
 def infer_label(key: str) -> str:
     """Infer a readable field label from Marathi placeholder text or snake_case."""
-    cleaned = re.sub(r"\\s+", " ", key).strip()
+    cleaned = re.sub(r"\s+", " ", key).strip()
     if cleaned in KNOWN_LABELS:
         return KNOWN_LABELS[cleaned]
     # When the placeholder contains slash-separated choices, use the first useful concept.
@@ -122,4 +122,4 @@ def build_docx_preview(docx_path: str | Path, data: dict[str, Any]) -> str:
             text = replace_placeholder_text(paragraph.text, data)
             if text.strip():
                 lines.append(text)
-    return "\\n".join(lines).strip()
+    return "\n".join(lines).strip()
