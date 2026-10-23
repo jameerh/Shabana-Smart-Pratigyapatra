@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 import customtkinter as ctk
 
 from templates import TEMPLATES
-from docx_export import export_to_docx
+from docx_export import export_to_docx, export_legacy_text_docx
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
 from engine.bold_template_miner import mine_docx
@@ -541,7 +541,14 @@ class AffidavitStudio:
             else:
                 filled_text = self.preview_text.get("1.0", "end").strip()
                 taluka = data.get("applicant_taluka", "")
-                export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get())
+                if TEMPLATES[template_name].get("preview_font_hint"):
+                    # The DVBW sample is already legacy-encoded; do not pass it
+                    # through Unicode-to-ISM conversion a second time.
+                    export_legacy_text_docx(
+                        filled_text, filename, self.preview_font_family.get()
+                    )
+                else:
+                    export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get())
             messagebox.showinfo("यशस्वी (Success)", f"दस्तऐवज सेव्ह करण्यात आला आहे:\n{filename}")
         except Exception as e:
             messagebox.showerror("त्रुटी (Error)", f"Word फाइल तयार करताना त्रुटी आली:\n{e}")
