@@ -462,9 +462,9 @@ class AffidavitStudio:
             return
 
         template_info = TEMPLATES[template_name]
+        stamp_guide = ""
         if template_info.get("preview_font_hint"):
-            # Screen-only guide. The final DOCX reserves the same area as blank
-            # stamp space, without embedding a fake stamp in the legal document.
+            # Screen-only guide; the exported DOCX reserves blank stamp space.
             stamp_guide = (
                 "┌────────────────────────────┐\n"
                 "│     ₹500 STAMP PAPER       │\n"
@@ -472,9 +472,6 @@ class AffidavitStudio:
                 "│  FINAL DOCUMENT: BLANK     │\n"
                 "└────────────────────────────┘\n\n"
             )
-            self.preview_text.insert("1.0", stamp_guide)
-            self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
-            self.preview_text.tag_add("stamp_guide", "1.0", "7.0")
         if "gender" in data:
             data["gender_verb"] = "सांगतो" if data["gender"] == "पुरुष" else "सांगते"
             data["gender_prefix"] = "श्री" if data["gender"] == "पुरुष" else "सौ."
@@ -494,14 +491,20 @@ class AffidavitStudio:
         try:
             # Format preview text safely
             filled = template_info["template"].format(**data)
-            self.preview_text.insert("1.0", filled)
+            self.preview_text.insert("1.0", stamp_guide + filled)
+            if stamp_guide:
+                self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
+                self.preview_text.tag_add("stamp_guide", "1.0", "7.0")
         except KeyError as missing:
             # Fallback for partially filled fields
             safe_data = {k: (data.get(k) or f"[{k}]") for k in template_info["fields"]}
             safe_data.update(data)
             try:
                 filled = template_info["template"].format(**safe_data)
-                self.preview_text.insert("1.0", filled)
+                self.preview_text.insert("1.0", stamp_guide + filled)
+                if stamp_guide:
+                    self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
+                    self.preview_text.tag_add("stamp_guide", "1.0", "7.0")
             except Exception:
                 self.preview_text.insert("1.0", template_info["template"])
 
