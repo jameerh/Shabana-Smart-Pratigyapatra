@@ -5,6 +5,8 @@ from pathlib import Path
 
 from docx import Document
 
+from docx_export import export_legacy_text_docx
+
 from templates import TEMPLATES
 from engine.smart_docx_import import detect_docx_font_family, extract_docx_fields, build_docx_preview
 
@@ -29,6 +31,15 @@ class DvbwTemplateTests(unittest.TestCase):
         self.assertIn("टेस्ट नाव", rendered)
         self.assertIn("473/1/A", rendered)
         self.assertNotIn("{applicant_full_name}", rendered)
+
+    def test_legacy_export_keeps_selected_font_without_text_conversion(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "output.docx"
+            legacy_text = "¯ÖÏ×ŸÖ–ÖÖ¯Ö¡Ö\\n{applicant_full_name}"
+            export_legacy_text_docx(legacy_text, path, "DVBW Series")
+            doc = Document(path)
+            self.assertEqual(doc.paragraphs[0].runs[0].font.name, "DVBW Series")
+            self.assertEqual(doc.paragraphs[1].text, "{applicant_full_name}")
 
     def test_detects_explicit_font_and_placeholder_in_docx(self):
         with tempfile.TemporaryDirectory() as td:
