@@ -19,6 +19,7 @@ import customtkinter as ctk
 from templates import TEMPLATES
 from docx_export import export_to_docx, export_legacy_text_docx, ISM_AVAILABLE, unicode_to_ism
 from engine.docx_preview_renderer import render_docx_pages, PreviewRenderError
+from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
 from engine.bold_template_miner import mine_docx
@@ -170,6 +171,19 @@ class AffidavitStudio:
                       fg_color="#475569", hover_color="#3B82F6", command=self.save_data).pack(side="left", padx=2)
         ctk.CTkButton(quick_row, text="Load JSON", width=85, height=26, font=("Segoe UI", 11),
                       fg_color="#475569", hover_color="#F59E0B", command=self.load_data).pack(side="left", padx=2)
+
+        profile_row = ctk.CTkFrame(self.left_pane, fg_color="transparent")
+        profile_row.pack(fill="x", padx=12, pady=(0, 4))
+        ctk.CTkButton(
+            profile_row, text="Save Applicant Profile", width=145, height=26,
+            font=("Segoe UI", 11), fg_color="#475569",
+            command=self.save_applicant_profile_dialog
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            profile_row, text="Load Applicant Profile", width=145, height=26,
+            font=("Segoe UI", 11), fg_color="#475569",
+            command=self.load_applicant_profile_dialog
+        ).pack(side="left", padx=2)
 
         # ISM Checkbox
         self.ism_chk = ctk.CTkCheckBox(quick_row, text="ISM (DVBW)", variable=self.use_ism, font=("Segoe UI", 11))
@@ -792,6 +806,42 @@ class AffidavitStudio:
             f"सर्व टेम्पलेट्स स्टुडिओमध्ये लोड करण्यात आले आहेत!"
         )
         messagebox.showinfo("बल्क स्कॅनर रिपोर्ट (Scan Report)", msg)
+
+    def save_applicant_profile_dialog(self):
+        """Save reusable applicant details locally as a named profile."""
+        name = ctk.CTkInputDialog(title="Applicant Profile", text="Profile name:").get_input()
+        if not name or not name.strip():
+            return
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".json", initialfile=name.strip().replace(" ", "_") + ".json",
+            filetypes=[("Applicant profile", "*.json")]
+        )
+        if not filename:
+            return
+        try:
+            save_applicant_profile(Path(filename).parent, Path(filename).stem, self.get_current_data())
+            messagebox.showinfo("Profile saved", f"Applicant profile saved locally:\n{filename}")
+        except Exception as exc:
+            messagebox.showerror("Profile error", str(exc))
+
+    def load_applicant_profile_dialog(self):
+        """Load saved profile values into matching current form fields."""
+        filename = filedialog.askopenfilename(filetypes=[("Applicant profile", "*.json")])
+        if not filename:
+            return
+        try:
+            data = load_applicant_profile(filename)
+            for key, value in data.items():
+                widget = self.field_entries.get(key)
+                if isinstance(widget, ctk.CTkEntry):
+                    widget.delete(0, "end")
+                    widget.insert(0, value)
+                elif isinstance(widget, tk.StringVar):
+                    widget.set(value)
+            self.update_live_preview()
+            messagebox.showinfo("Profile loaded", "Matching fields have been filled.")
+        except Exception as exc:
+            messagebox.showerror("Profile error", str(exc))
 
     def save_data(self):
         data = self.get_current_data()
