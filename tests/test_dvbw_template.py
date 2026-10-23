@@ -43,6 +43,18 @@ class DvbwTemplateTests(unittest.TestCase):
             self.assertEqual(len(doc.tables), 1)
             self.assertEqual(doc.tables[0].cell(0, 0).text, "")
 
+    def test_preview_stamp_is_present_only_when_requested(self):
+        with tempfile.TemporaryDirectory() as td:
+            final_path = Path(td) / "final.docx"
+            preview_path = Path(td) / "preview.docx"
+            export_legacy_text_docx("Affidavit", final_path, "DVBW Series")
+            export_legacy_text_docx("Affidavit", preview_path, "DVBW Series", include_stamp_preview=True)
+            final_doc = Document(final_path)
+            preview_doc = Document(preview_path)
+            self.assertEqual(final_doc.tables[0].cell(0, 0).text, "")
+            self.assertEqual(len(final_doc.inline_shapes), 0)
+            self.assertEqual(len(preview_doc.inline_shapes), 1)
+
     def test_detects_explicit_font_and_placeholder_in_docx(self):
         with tempfile.TemporaryDirectory() as td:
             path = Path(td) / "legacy.docx"
