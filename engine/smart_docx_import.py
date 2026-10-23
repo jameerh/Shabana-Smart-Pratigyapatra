@@ -65,7 +65,13 @@ def extract_docx_fields(docx_path: str | Path) -> list[dict[str, str]]:
     doc = Document(str(docx_path))
     fields: list[dict[str, str]] = []
     seen: set[str] = set()
-    containers = [doc, *doc.sections]
+    containers = [doc]
+    for section in doc.sections:
+        containers.extend([
+            section.header, section.footer,
+            section.first_page_header, section.first_page_footer,
+            section.even_page_header, section.even_page_footer,
+        ])
     for container in containers:
         for paragraph in _iter_paragraphs(container):
             for match in PLACEHOLDER_PATTERN.finditer(paragraph.text):
