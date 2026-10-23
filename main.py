@@ -549,6 +549,7 @@ class AffidavitStudio:
                 self.preview_text.insert("1.0", build_docx_preview(doc_path, data))
             except Exception as ex:
                 self.preview_text.insert("1.0", f"Preview Error: {ex}")
+            self._schedule_wysiwyg_preview()
             return
 
         if template_name not in TEMPLATES:
