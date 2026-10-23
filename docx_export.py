@@ -496,3 +496,33 @@ def export_waras_filled(filename, data, taluka_name="", use_ism=False):
     add_page_number(doc, font_name, use_ism)
 
     doc.save(filename)
+
+def export_legacy_text_docx(text, filename, font_name):
+    """Export text that is already encoded for a legacy font without re-converting it.
+
+    This path is for user-supplied legacy-encoded templates such as DVBW. It
+    deliberately avoids Unicode-to-ISM conversion and extra boilerplate text.
+    """
+    doc = Document()
+    section = doc.sections[0]
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+    section.top_margin = Inches(0.8)
+    section.bottom_margin = Inches(0.8)
+
+    first_content = True
+    for line in text.splitlines():
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(5)
+        if not line.strip():
+            continue
+        run = paragraph.add_run(line)
+        run.font.name = font_name
+        run.font._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+        run.font.size = Pt(12)
+        if first_content:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run.bold = True
+            run.font.size = Pt(14)
+            first_content = False
+    doc.save(filename)
