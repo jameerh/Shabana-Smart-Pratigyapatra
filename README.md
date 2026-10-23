@@ -51,7 +51,9 @@ templete_generator/
 
 ### Prerequisites
 - Python 3.9+
-- Microsoft Word (recommended for viewing exported `.docx`)
+- Microsoft Word (recommended for final visual verification of exported `.docx`)
+- LibreOffice installed locally for rendered page preview (required for the new WYSIWYG preview)
+- PyMuPDF installed from `requirements.txt` to display rendered PDF pages
 - Mangal font (standard Windows Hindi/Marathi font)
 
 ### Installation
@@ -66,7 +68,8 @@ templete_generator/
    pip install -r requirements.txt
    ```
 
-3. Launch the application:
+3. Install LibreOffice from https://www.libreoffice.org/download/download-libreoffice/ if it is not already installed. The app invokes its headless `soffice` executable for local rendering; documents are rendered locally, not uploaded.
+4. Launch the application:
    ```bash
    python main.py
    ```
