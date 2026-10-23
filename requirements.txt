@@ -1,3 +1,5 @@
 python-docx
 python-barcode
 pillow
+PyMuPDF
+customtkinter
