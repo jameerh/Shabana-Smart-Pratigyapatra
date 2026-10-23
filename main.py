@@ -462,6 +462,19 @@ class AffidavitStudio:
             return
 
         template_info = TEMPLATES[template_name]
+        if template_info.get("preview_font_hint"):
+            # Screen-only guide. The final DOCX reserves the same area as blank
+            # stamp space, without embedding a fake stamp in the legal document.
+            stamp_guide = (
+                "┌────────────────────────────┐\n"
+                "│     ₹500 STAMP PAPER       │\n"
+                "│      PREVIEW GUIDE ONLY    │\n"
+                "│  FINAL DOCUMENT: BLANK     │\n"
+                "└────────────────────────────┘\n\n"
+            )
+            self.preview_text.insert("1.0", stamp_guide)
+            self.preview_text.tag_configure("stamp_guide", justify="center", foreground="#64748B")
+            self.preview_text.tag_add("stamp_guide", "1.0", "7.0")
         if "gender" in data:
             data["gender_verb"] = "सांगतो" if data["gender"] == "पुरुष" else "सांगते"
             data["gender_prefix"] = "श्री" if data["gender"] == "पुरुष" else "सौ."
