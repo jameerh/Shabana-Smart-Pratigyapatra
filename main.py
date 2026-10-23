@@ -3,6 +3,7 @@
 Complete Dual-Pane Live Preview Studio & Bulk Bold Template Generator
 """
 import json
+import io
 import os
 import re
 import sys
@@ -10,12 +11,14 @@ import tempfile
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
+from PIL import Image, ImageTk
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 
 from templates import TEMPLATES
 from docx_export import export_to_docx, export_legacy_text_docx
+from engine.docx_preview_renderer import render_docx_pages, PreviewRenderError
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
 from engine.bold_template_miner import mine_docx
@@ -41,6 +44,10 @@ class AffidavitStudio:
         self.use_ism = tk.BooleanVar(value=False)
         self.preview_font_family = tk.StringVar(value="Mangal")
         self.available_preview_fonts = []
+        self._preview_after_id = None
+        self._preview_image_refs = []
+        self._preview_pages_frame = None
+        self._preview_canvas = None
         self.custom_template_path = None
         self.custom_placeholders = []
 
@@ -230,6 +237,19 @@ class AffidavitStudio:
             selectforeground="#000000"
         )
         self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Page-image surface for a Word-like preview. Text remains as fallback
+        # when LibreOffice or PyMuPDF is not installed.
+        self.preview_pages_container = ctk.CTkFrame(self.paper_frame, fg_color="#334155")
+        self.preview_canvas = tk.Canvas(self.preview_pages_container, bg="#334155", highlightthickness=0)
+        self.preview_scrollbar = ttk.Scrollbar(self.preview_pages_container, orient="vertical", command=self.preview_canvas.yview)
+        self.preview_canvas.configure(yscrollcommand=self.preview_scrollbar.set)
+        self.preview_scrollbar.pack(side="right", fill="y")
+        self.preview_canvas.pack(side="left", fill="both", expand=True)
+        self.preview_pages_inner = tk.Frame(self.preview_canvas, bg="#334155")
+        self.preview_canvas_window = self.preview_canvas.create_window((0, 0), window=self.preview_pages_inner, anchor="nw")
+        self.preview_pages_inner.bind("<Configure>", lambda e: self.preview_canvas.configure(scrollregion=self.preview_canvas.bbox("all")))
+        self.preview_canvas.bind("<Configure>", lambda e: self.preview_canvas.itemconfigure(self.preview_canvas_window, width=e.width))
 
         # Config text tags for bold/highlight
         self.preview_text.tag_configure("heading", font=(self.preview_font_family.get(), 16, "bold"), justify="center")
@@ -443,6 +463,79 @@ class AffidavitStudio:
 
         return data
 
+    def _schedule_wysiwyg_preview(self):
+        """Debounce document rendering so rapid typing does not launch many processes."""
+        if self._preview_after_id:
+            try:
+                self.root.after_cancel(self._preview_after_id)
+            except tk.TclError:
+                pass
+        self._preview_after_id = self.root.after(850, self._render_wysiwyg_preview)
+
+    def _render_wysiwyg_preview(self):
+        """Render the same kind of DOCX that export creates, then display its pages."""
+        self._preview_after_id = None
+        template_name = self.current_template.get()
+        data = self.get_current_data()
+        temp_dir = tempfile.TemporaryDirectory(prefix="shabana_live_docx_")
+        path = Path(temp_dir.name) / "live_preview.docx"
+        try:
+            if template_name in self.mined_templates_library:
+                create_filled_document(self.mined_templates_library[template_name], data, path)
+            elif template_name in TEMPLATES:
+                info = TEMPLATES[template_name]
+                filled_text = self.preview_text.get("1.0", "end-1c")
+                # The stamp guide is only a UI hint and must never be exported.
+                filled_text = re.sub(
+                    r"^┌─+┐\n│     ₹500 STAMP PAPER       │\n│      PREVIEW GUIDE ONLY    │\n│  FINAL DOCUMENT: BLANK     │\n└─+┘\n\n",
+                    "", filled_text
+                )
+                if info.get("preview_font_hint"):
+                    export_legacy_text_docx(filled_text, path, self.preview_font_family.get())
+                else:
+                    export_to_docx(
+                        filled_text, str(path), barcode_data=None,
+                        taluka_name=data.get("applicant_taluka", ""),
+                        use_ism=self.use_ism.get()
+                    )
+            else:
+                temp_dir.cleanup()
+                return
+            page_pngs = render_docx_pages(path)
+            self._show_rendered_preview(page_pngs)
+        except (PreviewRenderError, Exception) as exc:
+            # Keep the existing text preview available and explain the dependency.
+            if not self.preview_pages_container.winfo_manager():
+                self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
+            self._set_preview_status(f"Word-page preview unavailable: {exc}")
+        finally:
+            temp_dir.cleanup()
+
+    def _show_rendered_preview(self, page_pngs):
+        """Display all rendered pages as scaled images in a vertically scrollable pane."""
+        for widget in self.preview_pages_inner.winfo_children():
+            widget.destroy()
+        self._preview_image_refs = []
+        available_width = max(400, self.preview_canvas.winfo_width() - 36)
+        for index, png in enumerate(page_pngs, start=1):
+            image = Image.open(io.BytesIO(png)).convert("RGB")
+            scale = min(1.0, available_width / image.width)
+            if scale < 1:
+                image = image.resize((int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(image)
+            self._preview_image_refs.append(photo)
+            label = tk.Label(self.preview_pages_inner, image=photo, bg="#334155", bd=0)
+            label.pack(padx=12, pady=(12, 3))
+            tk.Label(self.preview_pages_inner, text=f"Page {index} of {len(page_pngs)}", bg="#334155", fg="#CBD5E1").pack(pady=(0, 12))
+        self.preview_text.pack_forget()
+        self.preview_pages_container.pack(fill="both", expand=True, padx=8, pady=8)
+        self._set_preview_status(f"Rendered document preview • {len(page_pngs)} page(s)")
+
+    def _set_preview_status(self, message):
+        """Display current preview renderer status in the window title."""
+        base = "Shabana Smart Pratigyapatra (Affidavit Master) - Maharashtra"
+        self.root.title(f"{base} | {message}")
+
     def update_live_preview(self):
         """Real-time reactive live preview rendering."""
         template_name = self.current_template.get()
@@ -507,6 +600,8 @@ class AffidavitStudio:
                     self.preview_text.tag_add("stamp_guide", "1.0", "7.0")
             except Exception:
                 self.preview_text.insert("1.0", template_info["template"])
+
+        self._schedule_wysiwyg_preview()
 
     def fill_sample(self):
         """Populate current template with authentic Marathi sample data."""
