@@ -1,257 +1,321 @@
 # main.py
-import tkinter as tk
+"""Shabana Smart Pratigyapatra (शबाना स्मार्ट प्रतिज्ञापत्र) - Affidavit Master
+Complete Dual-Pane Live Preview Studio & Bulk Bold Template Generator
+"""
 import json
 import os
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
-from templates import TEMPLATES
-from docx_export import export_to_docx, export_waras_template, export_waras_filled
-from template_parser import extract_placeholders, create_filled_document
+import re
+import sys
+import tempfile
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
-# Set appearance and theme
-ctk.set_appearance_mode("light")   # or "dark"
+import customtkinter as ctk
+
+from templates import TEMPLATES
+from docx_export import export_to_docx
+from template_parser import extract_placeholders, create_filled_document
+from engine.bold_template_miner import mine_docx
+from engine.template_deduplicator import fingerprint_docx, classify_duplicate
+from engine.section_repeater import detect_repeated_person_sections
+from engine.batch_pipeline import process_template_folder
+
+# Set CustomTkinter theme
+ctk.set_appearance_mode("dark")  # Sleek modern dark mode
 ctk.set_default_color_theme("blue")
 
-class AffidavitGenerator:
+
+class AffidavitStudio:
     def __init__(self):
         self.root = ctk.CTk()
-        self.root.title("Affidavit Generator - Maharashtra")
-        self.root.geometry("1300x800")
-        self.root.minsize(1000, 600)
+        self.root.title("Shabana Smart Pratigyapatra (Affidavit Master) - Maharashtra")
+        self.root.geometry("1400x880")
+        self.root.minsize(1100, 700)
 
-        # Mode and state variables
+        # State Variables
         self.mode = tk.StringVar(value="builtin")
         self.current_template = tk.StringVar(value="Waras (Heirship) Affidavit")
         self.use_ism = tk.BooleanVar(value=False)
-
         self.custom_template_path = None
         self.custom_placeholders = []
-        self.custom_fields = {}          # field name -> ctk.CTkEntry
-        self.builtin_fields = {}         # field name -> widget (CTkEntry or StringVar)
-        self.heir_entries = []           # list of (name_entry, age_entry, rel_entry)
 
-        # Build the main layout
-        self.create_layout()
-        self.load_saved_data()
+        # Form Field Registries
+        self.field_entries = {}       # key -> CTkEntry or StringVar
+        self.heir_entries = []        # list of (name_entry, age_entry, rel_entry)
+        self.mined_templates_library = {} # name -> template_path
+
+        # Build Main Interface
+        self._create_header_bar()
+        self._create_dual_pane_layout()
+
+        # Load Initial Template Form & Sample Data
+        self.on_template_change()
         self.fill_sample()
-        self.root.mainloop()
 
-    def create_layout(self):
-        # Main container with padding
-        self.main_container = ctk.CTkFrame(self.root, corner_radius=15)
-        self.main_container.pack(fill="both", expand=True, padx=15, pady=15)
+    def _create_header_bar(self):
+        """Top Application Bar with Title, Template Selector & Quick Actions."""
+        self.top_bar = ctk.CTkFrame(self.root, height=65, corner_radius=0, fg_color="#1E293B")
+        self.top_bar.pack(fill="x", side="top")
 
-        # Sidebar (left panel)
-        self.sidebar = ctk.CTkFrame(self.main_container, width=250, corner_radius=15)
-        self.sidebar.pack(side="left", fill="y", padx=(0, 10), pady=10)
+        # App Brand & Icon
+        brand_frame = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+        brand_frame.pack(side="left", padx=16, pady=10)
 
-        ctk.CTkLabel(self.sidebar, text="Affidavit Tool",
-                     font=("Segoe UI", 20, "bold")).pack(pady=20)
+        title = ctk.CTkLabel(
+            brand_frame,
+            text="📜 Shabana Smart Pratigyapatra",
+            font=("Segoe UI", 18, "bold"),
+            text_color="#F8FAFC"
+        )
+        title.pack(anchor="w")
 
-        # Mode selection
-        ctk.CTkRadioButton(self.sidebar, text="Built-in Templates",
-                           variable=self.mode, value="builtin",
-                           command=self.on_mode_change).pack(anchor="w", padx=20, pady=5)
-        ctk.CTkRadioButton(self.sidebar, text="Custom Template",
-                           variable=self.mode, value="custom",
-                           command=self.on_mode_change).pack(anchor="w", padx=20, pady=5)
+        sub = ctk.CTkLabel(
+            brand_frame,
+            text="MahaOnline CSC Affidavit & Template Studio",
+            font=("Segoe UI", 11),
+            text_color="#94A3B8"
+        )
+        sub.pack(anchor="w")
 
-        # Built-in template dropdown (shown only in built-in mode)
-        self.builtin_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        self.builtin_frame.pack(fill="x", padx=20, pady=10)
-        ctk.CTkLabel(self.builtin_frame, text="Affidavit Type:", anchor="w").pack(fill="x")
-        self.template_combo = ctk.CTkComboBox(self.builtin_frame,
-                                              values=list(TEMPLATES.keys()),
-                                              variable=self.current_template,
-                                              command=self.on_template_change)
-        self.template_combo.pack(fill="x", pady=5)
+        # Middle: Template Selector Dropdown
+        center_frame = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+        center_frame.pack(side="left", padx=30, pady=10)
 
-        # Custom template button
-        self.custom_btn = ctk.CTkButton(self.sidebar, text="Load Custom Template",
-                                        command=self.load_custom_template)
-        self.custom_btn.pack(pady=20, padx=20, fill="x")
+        ctk.CTkLabel(center_frame, text="निवडा (Template):", font=("Mangal", 12, "bold"), text_color="#E2E8F0").pack(side="left", padx=(0, 8))
+        self.template_combo = ctk.CTkComboBox(
+            center_frame,
+            values=list(TEMPLATES.keys()),
+            variable=self.current_template,
+            command=self.on_template_change,
+            width=260,
+            dropdown_font=("Segoe UI", 12)
+        )
+        self.template_combo.pack(side="left", padx=5)
 
-        # Action buttons
-        ctk.CTkButton(self.sidebar, text="Fill Sample Data",
-                      command=self.fill_sample, fg_color="#e0e0e0", text_color="black").pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Generate Word",
-                      command=self.generate_word, fg_color="#4CAF50").pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Save Data",
-                      command=self.save_data, fg_color="#2196F3").pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Load Data",
-                      command=self.load_data, fg_color="#FF9800").pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Generate Template (Blank)",
-                      command=self.generate_template).pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Export Raw Template",
-                      command=self.generate_raw_template).pack(pady=5, padx=20, fill="x")
-        ctk.CTkButton(self.sidebar, text="Export All Templates",
-                      command=self.export_all_templates).pack(pady=5, padx=20, fill="x")
+        # Right Action Buttons
+        actions_frame = ctk.CTkFrame(self.top_bar, fg_color="transparent")
+        actions_frame.pack(side="right", padx=16, pady=10)
 
-        # ISM checkbox
-        self.ism_check = ctk.CTkCheckBox(self.sidebar, text="Use ISM (DVBW) Conversion",
-                                         variable=self.use_ism)
-        self.ism_check.pack(pady=20, padx=20, anchor="w")
+        # Bulk Folder Miner Button (Phase 1 & 2 integration)
+        self.bulk_mine_btn = ctk.CTkButton(
+            actions_frame,
+            text="⚡ Bulk Scan Folder",
+            fg_color="#8B5CF6",
+            hover_color="#7C3AED",
+            font=("Segoe UI", 12, "bold"),
+            width=140,
+            command=self.open_bulk_scanner_dialog
+        )
+        self.bulk_mine_btn.pack(side="left", padx=6)
 
-        # Main content area
-        self.content = ctk.CTkFrame(self.main_container, corner_radius=15)
-        self.content.pack(side="left", fill="both", expand=True, pady=10)
+        # Custom Template Load Button
+        self.load_doc_btn = ctk.CTkButton(
+            actions_frame,
+            text="📂 Load Custom DOCX",
+            fg_color="#334155",
+            hover_color="#475569",
+            font=("Segoe UI", 12),
+            width=130,
+            command=self.load_custom_docx
+        )
+        self.load_doc_btn.pack(side="left", padx=6)
 
-        # Header
-        header = ctk.CTkFrame(self.content, height=60, corner_radius=10)
-        header.pack(fill="x", padx=10, pady=(10, 5))
-        ctk.CTkLabel(header, text="Affidavit Generator",
-                     font=("Segoe UI", 22, "bold")).pack(side="left", padx=15)
+        # Export Word
+        self.export_word_btn = ctk.CTkButton(
+            actions_frame,
+            text="💾 Export Word",
+            fg_color="#10B981",
+            hover_color="#059669",
+            font=("Segoe UI", 12, "bold"),
+            width=110,
+            command=self.generate_word
+        )
+        self.export_word_btn.pack(side="left", padx=6)
 
-        # Scrollable form area (dynamic fields)
-        self.form_frame = ctk.CTkScrollableFrame(self.content, corner_radius=10)
-        self.form_frame.pack(fill="both", expand=True, padx=10, pady=5)
+    def _create_dual_pane_layout(self):
+        """Split screen: Left Form (42% width) & Right Live Document Paper Preview (58% width)."""
+        self.split_container = ctk.CTkFrame(self.root, fg_color="#0F172A", corner_radius=0)
+        self.split_container.pack(fill="both", expand=True, padx=12, pady=12)
 
-        # Preview area
-        preview_frame = ctk.CTkFrame(self.content, corner_radius=10)
-        preview_frame.pack(fill="both", expand=True, padx=10, pady=5)
-        ctk.CTkLabel(preview_frame, text="Preview", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=10, pady=5)
-        self.preview_text = ctk.CTkTextbox(preview_frame, font=("Mangal", 14), wrap="word")
-        self.preview_text.pack(fill="both", expand=True, padx=10, pady=5)
+        # Left Column: Inputs & Form
+        self.left_pane = ctk.CTkFrame(self.split_container, width=540, corner_radius=12, fg_color="#1E293B")
+        self.left_pane.pack(side="left", fill="both", padx=(0, 6), pady=0)
+        self.left_pane.pack_propagate(False)
 
-        # Initial UI state
-        self.on_mode_change()
+        left_header = ctk.CTkFrame(self.left_pane, height=44, fg_color="#334155", corner_radius=10)
+        left_header.pack(fill="x", padx=10, pady=(10, 6))
+        ctk.CTkLabel(left_header, text="✏️ माहिती भरा (Form Inputs)", font=("Segoe UI", 13, "bold"), text_color="#F8FAFC").pack(side="left", padx=12)
 
-    def on_mode_change(self):
-        """Switch between built-in and custom mode."""
-        if self.mode.get() == "builtin":
-            self.builtin_frame.pack(fill="x", padx=20, pady=10)
-            self.custom_btn.pack_forget()
-            self.on_template_change()
-        else:
-            self.builtin_frame.pack_forget()
-            self.custom_btn.pack(pady=20, padx=20, fill="x")
-            if self.custom_template_path:
-                self.build_custom_form()
-            else:
-                self.clear_form()
+        # Quick utility row on left
+        quick_row = ctk.CTkFrame(self.left_pane, fg_color="transparent")
+        quick_row.pack(fill="x", padx=12, pady=4)
 
-    def clear_form(self):
-        """Clear the dynamic form area."""
-        for widget in self.form_frame.winfo_children():
-            widget.destroy()
-        self.preview_text.delete("0.0", "end")
+        ctk.CTkButton(quick_row, text="Fill Sample", width=85, height=26, font=("Segoe UI", 11),
+                      fg_color="#475569", hover_color="#64748B", command=self.fill_sample).pack(side="left", padx=2)
+        ctk.CTkButton(quick_row, text="Clear Form", width=85, height=26, font=("Segoe UI", 11),
+                      fg_color="#475569", hover_color="#EF4444", command=self.clear_form).pack(side="left", padx=2)
+        ctk.CTkButton(quick_row, text="Save JSON", width=85, height=26, font=("Segoe UI", 11),
+                      fg_color="#475569", hover_color="#3B82F6", command=self.save_data).pack(side="left", padx=2)
+        ctk.CTkButton(quick_row, text="Load JSON", width=85, height=26, font=("Segoe UI", 11),
+                      fg_color="#475569", hover_color="#F59E0B", command=self.load_data).pack(side="left", padx=2)
 
-    def load_custom_template(self):
-        """Open file dialog, load a .docx, extract placeholders, and build form."""
-        file_path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx")])
-        if not file_path:
-            return
-        try:
-            self.custom_template_path = file_path
-            self.custom_placeholders = extract_placeholders(file_path)
-            self.build_custom_form()
-            messagebox.showinfo("Success", f"Loaded template with {len(self.custom_placeholders)} placeholders.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to parse template: {e}")
+        # ISM Checkbox
+        self.ism_chk = ctk.CTkCheckBox(quick_row, text="ISM (DVBW)", variable=self.use_ism, font=("Segoe UI", 11))
+        self.ism_chk.pack(side="right", padx=4)
 
-    def build_custom_form(self):
-        """Build entry fields for each placeholder found in the custom template."""
-        self.clear_form()
-        self.custom_fields.clear()
+        # Scrollable form container
+        self.form_scroll = ctk.CTkScrollableFrame(self.left_pane, corner_radius=8, fg_color="#1E293B")
+        self.form_scroll.pack(fill="both", expand=True, padx=6, pady=6)
 
-        for i, ph in enumerate(sorted(self.custom_placeholders)):
-            # Card‑like container
-            card = ctk.CTkFrame(self.form_frame, corner_radius=12)
-            card.pack(fill="x", padx=10, pady=8)
+        # Right Column: Real-time Live Document Preview (A4 paper style)
+        self.right_pane = ctk.CTkFrame(self.split_container, corner_radius=12, fg_color="#1E293B")
+        self.right_pane.pack(side="right", fill="both", expand=True, padx=(6, 0), pady=0)
 
-            ctk.CTkLabel(card, text=ph.replace("_", " ").title(),
-                         font=("Segoe UI", 14)).pack(anchor="w", padx=10, pady=(8, 0))
-            entry = ctk.CTkEntry(card, height=35)
-            entry.pack(fill="x", padx=10, pady=8)
-            self.custom_fields[ph] = entry
+        right_header = ctk.CTkFrame(self.right_pane, height=44, fg_color="#334155", corner_radius=10)
+        right_header.pack(fill="x", padx=10, pady=(10, 6))
 
-        self.preview_text.delete("0.0", "end")
-        self.preview_text.insert("0.0", f"Custom template loaded: {os.path.basename(self.custom_template_path)}\n\nPlaceholders: {', '.join(self.custom_placeholders)}")
+        ctk.CTkLabel(right_header, text="👁️ थेट दस्तऐवज पूर्वदृश्य (Live A4 Preview)", font=("Segoe UI", 13, "bold"), text_color="#F8FAFC").pack(side="left", padx=12)
+
+        self.zoom_level = tk.IntVar(value=14)
+        ctk.CTkButton(right_header, text="A-", width=32, height=26, fg_color="#475569", command=self._zoom_out).pack(side="right", padx=4)
+        ctk.CTkButton(right_header, text="A+", width=32, height=26, fg_color="#475569", command=self._zoom_in).pack(side="right", padx=2)
+        ctk.CTkLabel(right_header, text="फॉन्ट आकार:", font=("Mangal", 11), text_color="#CBD5E1").pack(side="right", padx=4)
+
+        # A4 Paper Container
+        self.paper_frame = ctk.CTkFrame(self.right_pane, corner_radius=8, fg_color="#334155")
+        self.paper_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        # Paper Sheet (White clean canvas for high contrast legal document preview)
+        self.preview_text = tk.Text(
+            self.paper_frame,
+            font=("Mangal", 14),
+            wrap="word",
+            bg="#FFFFFF",
+            fg="#0F172A",
+            padx=32,
+            pady=32,
+            relief="flat",
+            selectbackground="#93C5FD",
+            selectforeground="#000000"
+        )
+        self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # Config text tags for bold/highlight
+        self.preview_text.tag_configure("heading", font=("Mangal", 16, "bold"), justify="center")
+        self.preview_text.tag_configure("highlight", background="#FEF08A", foreground="#000000")
+
+    def _zoom_in(self):
+        sz = self.zoom_level.get() + 1
+        if sz <= 24:
+            self.zoom_level.set(sz)
+            self.preview_text.configure(font=("Mangal", sz))
+
+    def _zoom_out(self):
+        sz = self.zoom_level.get() - 1
+        if sz >= 10:
+            self.zoom_level.set(sz)
+            self.preview_text.configure(font=("Mangal", sz))
 
     def on_template_change(self, event=None):
-        """Built-in template selected – build built-in form."""
-        if self.mode.get() != "builtin":
-            return
-        self.clear_form()
-        self.builtin_fields = {}
+        """Build dynamic fields for selected template."""
+        for widget in self.form_scroll.winfo_children():
+            widget.destroy()
+
+        self.field_entries = {}
         self.heir_entries = []
 
         template_name = self.current_template.get()
+
+        if template_name in self.mined_templates_library:
+            self._build_mined_template_form(template_name)
+            return
+
+        if template_name not in TEMPLATES:
+            return
+
+        self.mode.set("builtin")
         template_info = TEMPLATES[template_name]
         fields = template_info["fields"]
-        heirs_supported = template_info.get("heirs", False)
+        has_heirs = template_info.get("heirs", False)
 
+        # Create input cards
         for field in fields:
-            card = ctk.CTkFrame(self.form_frame, corner_radius=12)
-            card.pack(fill="x", padx=10, pady=8)
+            card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
+            card.pack(fill="x", padx=6, pady=4)
 
             if field == "gender":
-                ctk.CTkLabel(card, text="Gender:", font=("Segoe UI", 14)).pack(anchor="w", padx=10, pady=(8, 0))
+                ctk.CTkLabel(card, text="लिंग (Gender):", font=("Mangal", 12, "bold"), text_color="#E2E8F0").pack(anchor="w", padx=10, pady=(6, 2))
                 gender_var = tk.StringVar(value="पुरुष")
-                radio_frame = ctk.CTkFrame(card, fg_color="transparent")
-                radio_frame.pack(anchor="w", padx=10, pady=8)
-                ctk.CTkRadioButton(radio_frame, text="पुरुष", variable=gender_var, value="पुरुष").pack(side="left", padx=5)
-                ctk.CTkRadioButton(radio_frame, text="स्त्री", variable=gender_var, value="स्त्री").pack(side="left", padx=5)
-                self.builtin_fields[field] = gender_var
+                r_box = ctk.CTkFrame(card, fg_color="transparent")
+                r_box.pack(anchor="w", padx=10, pady=(0, 6))
+                ctk.CTkRadioButton(r_box, text="पुरुष", variable=gender_var, value="पुरुष", command=self.update_live_preview).pack(side="left", padx=5)
+                ctk.CTkRadioButton(r_box, text="स्त्री", variable=gender_var, value="स्त्री", command=self.update_live_preview).pack(side="left", padx=5)
+                self.field_entries[field] = gender_var
             else:
-                label_text = field.replace("_", " ").title()
-                ctk.CTkLabel(card, text=label_text + ":", font=("Segoe UI", 14)).pack(anchor="w", padx=10, pady=(8, 0))
-                entry = ctk.CTkEntry(card, height=35)
-                entry.pack(fill="x", padx=10, pady=8)
-                self.builtin_fields[field] = entry
+                label = field.replace("_", " ").title()
+                ctk.CTkLabel(card, text=f"{label}:", font=("Segoe UI", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
+                entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
+                entry.pack(fill="x", padx=10, pady=(0, 6))
+                entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
+                self.field_entries[field] = entry
 
-        if heirs_supported:
-            # Heirs section
-            heir_header = ctk.CTkFrame(self.form_frame, corner_radius=12)
-            heir_header.pack(fill="x", padx=10, pady=8)
-            ctk.CTkLabel(heir_header, text="Heirs (up to 5):", font=("Segoe UI", 14, "bold")).pack(anchor="w", padx=10, pady=8)
+        # Heirs section if supported
+        if has_heirs:
+            heir_card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
+            heir_card.pack(fill="x", padx=6, pady=8)
+            ctk.CTkLabel(heir_card, text="👨‍👩‍👧 वारसांचे तपशील (Heir List up to 5):", font=("Mangal", 12, "bold"), text_color="#38BDF8").pack(anchor="w", padx=10, pady=6)
 
             for i in range(5):
-                card = ctk.CTkFrame(self.form_frame, corner_radius=12)
-                card.pack(fill="x", padx=10, pady=5)
-                # Row with three entries
-                row_frame = ctk.CTkFrame(card, fg_color="transparent")
-                row_frame.pack(fill="x", padx=10, pady=5)
-                ctk.CTkLabel(row_frame, text=f"Heir {i+1}:", width=60).pack(side="left", padx=5)
-                name_e = ctk.CTkEntry(row_frame, placeholder_text="Name", width=180)
-                name_e.pack(side="left", padx=5)
-                age_e = ctk.CTkEntry(row_frame, placeholder_text="Age", width=80)
-                age_e.pack(side="left", padx=5)
-                rel_e = ctk.CTkEntry(row_frame, placeholder_text="Relation", width=120)
-                rel_e.pack(side="left", padx=5)
-                self.heir_entries.append((name_e, age_e, rel_e))
+                row = ctk.CTkFrame(heir_card, fg_color="transparent")
+                row.pack(fill="x", padx=6, pady=3)
+                ctk.CTkLabel(row, text=f"{i+1}.", width=20, text_color="#94A3B8").pack(side="left", padx=2)
+                ne = ctk.CTkEntry(row, placeholder_text="नाव (Name)", font=("Mangal", 12), width=160, fg_color="#1E293B")
+                ne.pack(side="left", padx=3)
+                ae = ctk.CTkEntry(row, placeholder_text="वय", font=("Mangal", 12), width=50, fg_color="#1E293B")
+                ae.pack(side="left", padx=3)
+                re_entry = ctk.CTkEntry(row, placeholder_text="नाते (Rel)", font=("Mangal", 12), width=90, fg_color="#1E293B")
+                re_entry.pack(side="left", padx=3)
 
-        # Bind update events
-        for widget in self.builtin_fields.values():
-            if isinstance(widget, ctk.CTkEntry):
-                widget.bind("<KeyRelease>", self.update_preview)
-            elif isinstance(widget, tk.StringVar):
-                widget.trace("w", lambda *args: self.update_preview())
-        for name_e, age_e, rel_e in self.heir_entries:
-            name_e.bind("<KeyRelease>", self.update_preview)
-            age_e.bind("<KeyRelease>", self.update_preview)
-            rel_e.bind("<KeyRelease>", self.update_preview)
+                ne.bind("<KeyRelease>", lambda e: self.update_live_preview())
+                ae.bind("<KeyRelease>", lambda e: self.update_live_preview())
+                re_entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
+                self.heir_entries.append((ne, ae, re_entry))
 
-        self.update_preview()
+        self.update_live_preview()
 
-    def get_data(self):
-        """Return dict of current field values based on mode."""
-        if self.mode.get() == "custom":
-            data = {}
-            for ph, entry in self.custom_fields.items():
-                data[ph] = entry.get()
-            return data
+    def _build_mined_template_form(self, template_name: str):
+        """Build form inputs for a newly mined or loaded custom template."""
+        doc_path = self.mined_templates_library[template_name]
+        placeholders = extract_placeholders(doc_path)
 
-        # Built-in mode
+        info_card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
+        info_card.pack(fill="x", padx=6, pady=4)
+        ctk.CTkLabel(info_card, text=f"📄 Mined Template: {template_name}", font=("Segoe UI", 12, "bold"), text_color="#A78BFA").pack(anchor="w", padx=10, pady=6)
+
+        for ph in sorted(placeholders):
+            card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
+            card.pack(fill="x", padx=6, pady=4)
+
+            label = ph.replace("_", " ").title()
+            ctk.CTkLabel(card, text=f"{label}:", font=("Segoe UI", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
+            entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
+            entry.pack(fill="x", padx=10, pady=(0, 6))
+            entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
+            self.field_entries[ph] = entry
+
+        self.update_live_preview()
+
+    def get_current_data(self) -> dict:
         data = {}
-        for field, widget in self.builtin_fields.items():
+        for field, widget in self.field_entries.items():
             if isinstance(widget, ctk.CTkEntry):
                 data[field] = widget.get().strip()
             elif isinstance(widget, tk.StringVar):
                 data[field] = widget.get()
 
         template_name = self.current_template.get()
-        if TEMPLATES[template_name].get("heirs", False):
+        if template_name in TEMPLATES and TEMPLATES[template_name].get("heirs", False):
             heirs = []
             for name_e, age_e, rel_e in self.heir_entries:
                 name = name_e.get().strip()
@@ -260,509 +324,233 @@ class AffidavitGenerator:
                 if name or age or rel:
                     heirs.append((name, age, rel))
             data["heirs_list"] = heirs
-            heir_lines = []
-            for idx, (name, age, rel) in enumerate(heirs, 1):
-                heir_lines.append(f"{idx}) {name} - वय {age} - {rel}")
-            data["heir_table"] = "\n".join(heir_lines) if heir_lines else "कोणीही वारस नाही"
+            lines = [f"{i}) {n} - वय {a} वर्षे - {r}" for i, (n, a, r) in enumerate(heirs, 1)]
+            data["heir_table"] = "\n".join(lines) if lines else "कोणीही वारस नाही"
             data["number_of_heirs"] = str(len(heirs))
-
-        if template_name == "Income Certificate (3 Years)":
-            def to_int(val):
-                try:
-                    return int(''.join(filter(str.isdigit, val)))
-                except:
-                    return 0
-
-            total1 = (to_int(data.get("income1_salary", "0")) +
-                      to_int(data.get("income1_agri", "0")) +
-                      to_int(data.get("income1_labour", "0")) +
-                      to_int(data.get("income1_other", "0")))
-            total2 = (to_int(data.get("income2_salary", "0")) +
-                      to_int(data.get("income2_agri", "0")) +
-                      to_int(data.get("income2_labour", "0")) +
-                      to_int(data.get("income2_other", "0")))
-            total3 = (to_int(data.get("income3_salary", "0")) +
-                      to_int(data.get("income3_agri", "0")) +
-                      to_int(data.get("income3_labour", "0")) +
-                      to_int(data.get("income3_other", "0")))
-
-            data["total1"] = f"{total1}/-"
-            data["total2"] = f"{total2}/-"
-            data["total3"] = f"{total3}/-"
 
         return data
 
-    def update_preview(self, event=None):
-        """Update preview area with current data."""
+    def update_live_preview(self):
+        """Real-time reactive live preview rendering."""
         template_name = self.current_template.get()
-        data = self.get_data()
+        data = self.get_current_data()
 
-        if self.mode.get() == "custom":
-            self.preview_text.delete("0.0", "end")
-            self.preview_text.insert("0.0", f"Custom template loaded: {os.path.basename(self.custom_template_path)}\n\nPlaceholders: {', '.join(self.custom_placeholders)}")
+        self.preview_text.delete("1.0", "end")
+
+        if template_name in self.mined_templates_library:
+            doc_path = self.mined_templates_library[template_name]
+            # Render custom template text with replaced values
+            try:
+                from docx import Document
+                doc = Document(doc_path)
+                full_text = []
+                for p in doc.paragraphs:
+                    p_text = p.text
+                    for k, v in data.items():
+                        if v:
+                            p_text = p_text.replace(f"{{{k}}}", v)
+                    full_text.append(p_text)
+                self.preview_text.insert("1.0", "\n\n".join(full_text))
+            except Exception as ex:
+                self.preview_text.insert("1.0", f"Preview Error: {ex}")
             return
 
-        # Built-in preview
+        if template_name not in TEMPLATES:
+            return
+
         template_info = TEMPLATES[template_name]
         if "gender" in data:
             data["gender_verb"] = "सांगतो" if data["gender"] == "पुरुष" else "सांगते"
             data["gender_prefix"] = "श्री" if data["gender"] == "पुरुष" else "सौ."
+
+        # Income Certificate 3 years calculations
+        if template_name == "Income Certificate (3 Years)":
+            def to_int(v):
+                digits = re.sub(r"[^\d]", "", v)
+                return int(digits) if digits else 0
+            for i in (1, 2, 3):
+                t = (to_int(data.get(f"income{i}_salary", "0")) +
+                     to_int(data.get(f"income{i}_agri", "0")) +
+                     to_int(data.get(f"income{i}_labour", "0")) +
+                     to_int(data.get(f"income{i}_other", "0")))
+                data[f"total{i}"] = f"{t}/-"
+
         try:
-            preview = template_info["template"].format(**data)
-            self.preview_text.delete("0.0", "end")
-            self.preview_text.insert("0.0", preview)
-        except KeyError as e:
-            self.preview_text.delete("0.0", "end")
-            self.preview_text.insert("0.0", f"Error: Missing field {e}\n\nPlease fill all fields.")
-        except Exception as e:
-            self.preview_text.delete("0.0", "end")
-            self.preview_text.insert("0.0", f"Error: {e}")
+            # Format preview text safely
+            filled = template_info["template"].format(**data)
+            self.preview_text.insert("1.0", filled)
+        except KeyError as missing:
+            # Fallback for partially filled fields
+            safe_data = {k: (data.get(k) or f"[{k}]") for k in template_info["fields"]}
+            safe_data.update(data)
+            try:
+                filled = template_info["template"].format(**safe_data)
+                self.preview_text.insert("1.0", filled)
+            except Exception:
+                self.preview_text.insert("1.0", template_info["template"])
 
     def fill_sample(self):
-        """Fill sample data for the current template (built-in only)."""
-        if self.mode.get() == "custom":
-            messagebox.showinfo("Info", "Sample data not available for custom templates.")
+        """Populate current template with authentic Marathi sample data."""
+        template_name = self.current_template.get()
+        if template_name not in TEMPLATES:
             return
 
-        template_name = self.current_template.get()
-        sample = {}
+        sample = {
+            "applicant_full_name": "राम शंकर जोशी",
+            "applicant_age": "45",
+            "applicant_occupation": "शिक्षक",
+            "applicant_taluka": "पुणे",
+            "applicant_district": "पुणे",
+            "applicant_address": "रा. शनिवार पेठ, पुणे",
+            "deceased_relation": "वडील",
+            "deceased_name": "शंकर राम जोशी",
+            "deceased_death_date": "१५/०८/२०२३",
+            "deceased_death_place": "पुणे",
+            "city_survey_number": "गट क्र. १२३, ह. नं. ४५",
+            "affidavit_place": "पुणे",
+            "affidavit_date": "०१/०४/२०२५",
+            "gender": "पुरुष",
+            "old_name": "सुनिल कुमार शर्मा",
+            "new_name": "सुनिल कुमार",
+            "reason": "धार्मिक कारणास्तव",
+            "document_type": "मार्कशीट",
+            "document_details": "SSC गुणपत्रिका क्र. 123",
+            "lost_date": "१०/०२/२०२५",
+            "lost_place": "पुणे स्टेशन",
+            "complaint_filed": "होय, नोंद क्र. 456/25",
+        }
 
-        if template_name == "Waras (Heirship) Affidavit":
-            sample = {
-                "applicant_full_name": "राम शंकर जोशी",
-                "applicant_age": "45",
-                "applicant_occupation": "शिक्षक",
-                "applicant_taluka": "पुणे",
-                "applicant_district": "पुणे",
-                "deceased_relation": "वडील",
-                "deceased_name": "शंकर राम जोशी",
-                "deceased_death_date": "१५/०८/२०२३",
-                "deceased_death_place": "पुणे",
-                "city_survey_number": "गट क्र. १२३, ह. नं. ४५",
-                "affidavit_place": "पुणे",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-            # Clear and fill heirs
-            for name_e, age_e, rel_e in self.heir_entries:
-                name_e.delete(0, "end")
-                age_e.delete(0, "end")
-                rel_e.delete(0, "end")
-            heirs_sample = [
-                ("राम शंकर जोशी", "45", "पुत्र"),
-                ("सीता शंकर जोशी", "40", "पत्नी"),
-                ("मोहन शंकर जोशी", "20", "पुत्र")
-            ]
-            for i, (name, age, rel) in enumerate(heirs_sample):
-                if i < len(self.heir_entries):
-                    name_e, age_e, rel_e = self.heir_entries[i]
-                    name_e.delete(0, "end")
-                    name_e.insert(0, name)
-                    age_e.delete(0, "end")
-                    age_e.insert(0, age)
-                    rel_e.delete(0, "end")
-                    rel_e.insert(0, rel)
+        for k, val in sample.items():
+            if k in self.field_entries:
+                w = self.field_entries[k]
+                if isinstance(w, ctk.CTkEntry):
+                    w.delete(0, "end")
+                    w.insert(0, val)
+                elif isinstance(w, tk.StringVar):
+                    w.set(val)
 
-        elif template_name == "Name Change Affidavit":
-            sample = {
-                "applicant_full_name": "सुनिल कुमार शर्मा",
-                "applicant_age": "30",
-                "applicant_occupation": "व्यवसाय",
-                "applicant_address": "पुणे, महाराष्ट्र",
-                "old_name": "सुनिल कुमार शर्मा",
-                "new_name": "सुनिल कुमार",
-                "reason": "धार्मिक कारणास्तव",
-                "affidavit_place": "पुणे",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
+        # Fill heirs sample
+        if self.heir_entries:
+            heir_samples = [("राम शंकर जोशी", "45", "पुत्र"), ("सीता शंकर जोशी", "40", "पत्नी")]
+            for idx, (n_e, a_e, r_e) in enumerate(self.heir_entries):
+                n_e.delete(0, "end")
+                a_e.delete(0, "end")
+                r_e.delete(0, "end")
+                if idx < len(heir_samples):
+                    n, a, r = heir_samples[idx]
+                    n_e.insert(0, n); a_e.insert(0, a); r_e.insert(0, r)
 
-        elif template_name == "Lost Document Affidavit":
-            sample = {
-                "applicant_full_name": "प्रिया जोशी",
-                "applicant_age": "28",
-                "applicant_occupation": "विद्यार्थी",
-                "applicant_address": "मुंबई",
-                "document_type": "मार्कशीट",
-                "document_details": "SSC मार्कशीट, गुंडा क्र. 123",
-                "lost_date": "१०/०२/२०२५",
-                "lost_place": "मुंबई सेंट्रल",
-                "complaint_filed": "होय, नोंद क्र. 456/25",
-                "affidavit_place": "मुंबई",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "स्त्री"
-            }
+        self.update_live_preview()
 
-        elif template_name == "Date of Birth Affidavit":
-            sample = {
-                "applicant_full_name": "अनिल देशपांडे",
-                "applicant_age": "35",
-                "applicant_occupation": "अभियंता",
-                "applicant_address": "नागपूर",
-                "dob": "१५/०५/१९९०",
-                "dob_place": "नागपूर",
-                "reason": "शाळेत नोंद नसल्याने",
-                "affidavit_place": "नागपूर",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Income Affidavit":
-            sample = {
-                "applicant_full_name": "सविता पाटील",
-                "applicant_age": "40",
-                "applicant_occupation": "शिक्षिका",
-                "taluka_name": "कोल्हापूर",
-                "district": "कोल्हापूर",
-                "village": "शिंगणापूर",
-                "financial_year": "२०२४-२०२५",
-                "income_amount": "3,00,000",
-                "income_in_words": "तीन लाख रुपये",
-                "reason_for_document": "शासकीय योजनेचा लाभ घेण्यासाठी",
-                "validity_of_document": "०१/०४/२०२६",
-                "date_of_application": "१५/०३/२०२५",
-                "talathi_report_date": "२०/०३/२०२५",
-                "affidavit_place": "कोल्हापूर",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "स्त्री"
-            }
-
-        elif template_name == "Address Proof Affidavit":
-            sample = {
-                "applicant_full_name": "मनोज कुमार",
-                "applicant_age": "32",
-                "applicant_occupation": "व्यवसाय",
-                "old_address": "औरंगाबाद",
-                "new_address": "पुणे, महाराष्ट्र",
-                "duration_at_new": "२ वर्षे",
-                "reason": "नोकरी बदल",
-                "affidavit_place": "पुणे",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Landless Agricultural Labour Certificate":
-            sample = {
-                "applicant_full_name": "सुभाष गोविंद पवार",
-                "applicant_age": "42",
-                "applicant_occupation": "शेतमजूर",
-                "village": "वडगाव",
-                "taluka_name": "पुणे",
-                "district": "पुणे",
-                "pincode": "411041",
-                "application_reference_number": "APP/2025/001234",
-                "application_date": "१०/०३/२०२५",
-                "affidavit_date": "०१/०४/२०२५",
-                "talathi_report_date": "१५/०३/२०२५",
-                "aadhar_number": "1234 5678 9012",
-                "affidavit_place": "पुणे",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Gap Certificate":
-            sample = {
-                "applicant_full_name": "सतिश तुकाराम शास्त्री",
-                "applicant_age": "26",
-                "applicant_occupation": "शिक्षण",
-                "applicant_address": "मिरवाड, जत, जिल्हा सांगली",
-                "institution_name": "पद्मभुषण डॉ वसंतरावदादा पाटील महाविद्यालय तासगांव",
-                "qualification": "M.Sc.",
-                "year_of_completion": "2023",
-                "gap_start_year": "2023",
-                "gap_end_year": "2025",
-                "reason": "",
-                "affidavit_place": "सांगली",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Income Certificate (3 Years)":
-            sample = {
-                "applicant_full_name": "विकास कुंडलिक गुरवे",
-                "applicant_age": "21",
-                "applicant_occupation": "शिक्षण",
-                "applicant_address": "सांगली, जिल्हा सांगली",
-                "year1": "2018-19",
-                "year2": "2019-20",
-                "year3": "2020-21",
-                "income1_salary": "0/-",
-                "income1_agri": "50000/-",
-                "income1_labour": "0/-",
-                "income1_other": "0/-",
-                "income2_salary": "0/-",
-                "income2_agri": "55000/-",
-                "income2_labour": "0/-",
-                "income2_other": "0/-",
-                "income3_salary": "0/-",
-                "income3_agri": "60000/-",
-                "income3_labour": "0/-",
-                "income3_other": "0/-",
-                "affidavit_place": "सांगली",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Hiba (Gift) Deed":
-            sample = {
-                "donor_name": "अमीर महिबूब मुल्ला",
-                "donor_age": "38",
-                "donor_occupation": "शेती",
-                "donor_address": "जत, ता. जत, जिल्हा सांगली",
-                "donee_name": "आमीना कमाल शेख",
-                "donee_age": "41",
-                "donee_occupation": "गृहिणी",
-                "donee_address": "धावडवाडी, ता. जत, जिल्हा सांगली",
-                "property_description": "गट क्र. 502/1/ब/2, क्षेत्र 0.01.00 हेक्टर",
-                "survey_number": "502/1/ब/2",
-                "area": "0.01.00 हेक्टर",
-                "boundaries": "पूर्वेस शिवाजी बापूजी जाधव यांची खुली जागा, पश्चिमेस दुधाळवस्ती ते जत हायस्कूल रस्ता, दक्षिणेस शिवाजी बापूजी जाधव यांची खुली जागा, उत्तरेस सौ. शोभा दाजी पांढरे यांची इमारत",
-                "date_of_gift": "२५/१२/२०२०",
-                "witness1_name": "रफिक अहमद शेख",
-                "witness1_address": "बेवनूर, ता. जत, जिल्हा सांगली",
-                "witness2_name": "अहमदरफिक हनीफ शेख",
-                "witness2_address": "धावडवाडी, ता. जत, जिल्हा सांगली",
-                "affidavit_place": "जत",
-                "affidavit_date": "२८/०९/२०२१",
-                "gender": "पुरुष"
-            }
-
-        elif template_name == "Alpa Bhumidhar Shetkari (Small Farmer) Affidavit":
-            sample = {
-                "applicant_name": "बाबूराव गणपत पवार",
-                "age": "45",
-                "occupation": "शेती",
-                "village_name": "सोनगिरी",
-                "taluka_name": "जत",
-                "district_name": "सांगली",
-                "gut_number": "123",
-                "khata_number": "456",
-                "land_area": "0.02.00 हेक्टर",
-                "affidavit_place": "जत",
-                "affidavit_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-        
-        elif template_name == "Marriage Affidavit":
-            sample = {
-                "applicant_name": "रमेश गोविंद पवार",
-                "age": "28",
-                "occupation": "शेती",
-                "village_name": "सोनगिरी",
-                "district_name": "सांगली",
-                "marriage_date": "१२/०२/२०२०",
-                "marriage_place": "जत",
-                "spouse_father_name": "शंकरराव पाटील",
-                "spouse_name_before_marriage": "सुमन शंकर पाटील",
-                "spouse_name_after_marriage": "सुमन रमेश पवार",
-                "affidavit_date": "०१/०४/२०२५",
-                "magistrate_name": "अनिल कुमार",
-                "magistrate_place": "जत",
-                "magistrate_date": "०१/०४/२०२५",
-                "gender": "पुरुष"
-            }
-
-        # Fill the fields
-        for field, widget in self.builtin_fields.items():
-            if field in sample:
-                if isinstance(widget, ctk.CTkEntry):
-                    widget.delete(0, "end")
-                    widget.insert(0, sample[field])
-                elif isinstance(widget, tk.StringVar):  # gender radio
-                    widget.set(sample[field])
-
-        self.update_preview()
+    def clear_form(self):
+        for w in self.field_entries.values():
+            if isinstance(w, ctk.CTkEntry):
+                w.delete(0, "end")
+        for ne, ae, re_entry in self.heir_entries:
+            ne.delete(0, "end"); ae.delete(0, "end"); re_entry.delete(0, "end")
+        self.update_live_preview()
 
     def generate_word(self):
-        """Generate Word document from current mode."""
-        if self.mode.get() == "custom":
-            if not self.custom_template_path:
-                messagebox.showerror("Error", "No custom template loaded.")
-                return
-            data = self.get_data()
-            missing = [ph for ph in self.custom_placeholders if not data.get(ph)]
-            if missing:
-                messagebox.showwarning("Missing fields", f"Please fill: {', '.join(missing)}")
-                return
-            output_path = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Word files", "*.docx")])
-            if output_path:
-                try:
-                    create_filled_document(self.custom_template_path, data, output_path)
-                    messagebox.showinfo("Success", f"Document saved as {output_path}")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to generate document: {e}")
-            return
+        """Export completed document to Word (.docx) with Marathi Unicode / ISM."""
+        template_name = self.current_template.get()
+        data = self.get_current_data()
 
-        # Built-in mode
-        preview_text = self.preview_text.get("0.0", "end").strip()
-        if not preview_text or preview_text.startswith("Error"):
-            messagebox.showerror("Error", "Please fill all fields correctly before generating Word.")
-            return
-
-        filename = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Word files", "*.docx")])
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".docx",
+            filetypes=[("Word Document", "*.docx")],
+            initialfile=f"{template_name.replace(' ', '_')}.docx"
+        )
         if not filename:
             return
 
-        template_name = self.current_template.get()
-        template_info = TEMPLATES[template_name]
+        try:
+            if template_name in self.mined_templates_library:
+                create_filled_document(self.mined_templates_library[template_name], data, filename)
+            else:
+                filled_text = self.preview_text.get("1.0", "end").strip()
+                taluka = data.get("applicant_taluka", "")
+                export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get())
+            messagebox.showinfo("यशस्वी (Success)", f"दस्तऐवज सेव्ह करण्यात आला आहे:\n{filename}")
+        except Exception as e:
+            messagebox.showerror("त्रुटी (Error)", f"Word फाइल तयार करताना त्रुटी आली:\n{e}")
 
-        data = self.get_data()
-        taluka_name = data.get("applicant_taluka", data.get("taluka_name", ""))
-        barcode_data = None
-        if "barcode_field" in template_info:
-            barcode_field = template_info["barcode_field"]
-            if barcode_field in data:
-                barcode_data = data[barcode_field]
-        if template_name == "Waras (Heirship) Affidavit":
-            export_waras_filled(filename, data, taluka_name, use_ism=self.use_ism.get())
-        else:
-            export_to_docx(preview_text, filename, barcode_data, taluka_name, use_ism=self.use_ism.get())
-
-        messagebox.showinfo("Success", f"Affidavit saved as {filename}")
-
-    def generate_template(self):
-        """Generate blank template (handwritten) for built-in only."""
-        if self.mode.get() == "custom":
-            messagebox.showinfo("Info", "Blank template generation is only available for built-in templates.")
+    def load_custom_docx(self):
+        """Mine placeholders from any single DOCX and add to studio."""
+        file_path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx")])
+        if not file_path:
             return
+        try:
+            name = Path(file_path).stem.replace("_", " ").title()
+            self.mined_templates_library[name] = file_path
+            current_vals = list(self.template_combo.cget("values"))
+            if name not in current_vals:
+                current_vals.append(name)
+                self.template_combo.configure(values=current_vals)
+            self.current_template.set(name)
+            self.on_template_change()
+            messagebox.showinfo("यशस्वी", f"कस्टम टेम्पलेट लोड झाले: {name}")
+        except Exception as e:
+            messagebox.showerror("त्रुटी", f"टेम्पलेट लोड करताना त्रुटी आली: {e}")
 
-        template_name = self.current_template.get()
-        filename = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Word files", "*.docx")])
-        if not filename:
-            return
-
-        if template_name == "Waras (Heirship) Affidavit":
-            export_waras_template(filename)
-            messagebox.showinfo("Success", f"Professional template saved as {filename}")
-            return
-
-        template_info = TEMPLATES[template_name]
-        raw_template = template_info["template"]
-        note = "\n\n[Note: This is a template file. Fill in the placeholders {...} accordingly.]"
-        raw_template += note
-        export_to_docx(raw_template, filename, barcode_data=None, taluka_name="", use_ism=self.use_ism.get())
-        messagebox.showinfo("Success", f"Template saved as {filename}")
-
-    def generate_raw_template(self):
-        """Export raw placeholder template (code) for built-in only."""
-        if self.mode.get() == "custom":
-            messagebox.showinfo("Info", "Raw template export is only available for built-in templates.")
-            return
-
-        template_name = self.current_template.get()
-        template_info = TEMPLATES[template_name]
-        raw_template = template_info["template"]
-        note = "\n\n[Note: This is a programmatic template. Placeholders like {field} will be replaced by the application.]"
-        raw_template += note
-        filename = filedialog.asksaveasfilename(defaultextension=".docx", filetypes=[("Word files", "*.docx")])
-        if not filename:
-            return
-        export_to_docx(raw_template, filename, barcode_data=None, taluka_name="", use_ism=self.use_ism.get())
-        messagebox.showinfo("Success", f"Raw template saved as {filename}")
-
-    def export_all_templates(self):
-        """Export all built-in templates (code) to a folder."""
-        if self.mode.get() == "custom":
-            messagebox.showinfo("Info", "Bulk export is only available for built-in templates.")
-            return
-
-        folder = filedialog.askdirectory(title="Select folder to save templates")
+    def open_bulk_scanner_dialog(self):
+        """Open Folder Mining and Deduplication Dialog (Phase 1, 2, 4)."""
+        folder = filedialog.askdirectory(title="निवडा: ज्या फोल्डरमधील DOCX स्कॅन करायचे आहेत")
         if not folder:
             return
-        count = 0
-        for template_name, template_info in TEMPLATES.items():
-            raw_template = template_info["template"]
-            note = "\n\n[Note: This is a programmatic template. Placeholders like {field} will be replaced by the application.]"
-            full_text = raw_template + note
-            safe_name = template_name.replace(" ", "_").replace("(", "").replace(")", "")
-            filename = os.path.join(folder, f"{safe_name}_template.docx")
-            export_to_docx(full_text, filename, barcode_data=None, taluka_name="", use_ism=self.use_ism.get())
-            count += 1
-        messagebox.showinfo("Success", f"{count} templates exported to:\n{folder}")
+
+        out_folder = Path(folder) / "Mined_Templates"
+        report = process_template_folder(folder, out_folder)
+
+        # Register newly mined templates into the studio dropdown
+        current_vals = list(self.template_combo.cget("values"))
+        new_count = 0
+        for t in report.templates:
+            name = f"⭐ {t['name']}"
+            self.mined_templates_library[name] = t["template_docx"]
+            if name not in current_vals:
+                current_vals.append(name)
+                new_count += 1
+
+        self.template_combo.configure(values=current_vals)
+
+        msg = (
+            f"✅ फोल्डर स्कॅनिंग यशस्वीपणे पूर्ण झाले!\n\n"
+            f"• एकूण स्कॅन केलेल्या फाइल्स: {report.total_scanned}\n"
+            f"• नवीन युनिक टेम्पलेट्स: {report.unique_mined}\n"
+            f"• वगळलेले डुप्लिकेट (Duplicates Skipped): {report.duplicates_skipped}\n"
+            f"• एकाच फाइलमधील व्यक्ती रिपीट्स कॉम्प्रेश केले: {report.repeated_sections_compressed}\n\n"
+            f"सर्व टेम्पलेट्स स्टुडिओमध्ये लोड करण्यात आले आहेत!"
+        )
+        messagebox.showinfo("बल्क स्कॅनर रिपोर्ट (Scan Report)", msg)
 
     def save_data(self):
-        """Save current form data to JSON."""
-        data = {}
-        if self.mode.get() == "custom":
-            for ph, entry in self.custom_fields.items():
-                data[ph] = entry.get()
-        else:
-            for field, widget in self.builtin_fields.items():
-                if isinstance(widget, ctk.CTkEntry):
-                    data[field] = widget.get()
-                elif isinstance(widget, tk.StringVar):
-                    data[field] = widget.get()
-            template_name = self.current_template.get()
-            if TEMPLATES[template_name].get("heirs", False):
-                heirs = []
-                for name_e, age_e, rel_e in self.heir_entries:
-                    heirs.append({
-                        "name": name_e.get(),
-                        "age": age_e.get(),
-                        "relation": rel_e.get()
-                    })
-                data["heirs"] = heirs
-
+        data = self.get_current_data()
         filename = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
         if filename:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            messagebox.showinfo("Success", f"Data saved to {filename}")
+            messagebox.showinfo("यशस्वी", f"माहिती सेव्ह झाली: {filename}")
 
     def load_data(self):
-        """Load saved data from JSON and populate form."""
         filename = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
         if not filename:
             return
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
-            if self.mode.get() == "custom":
-                for ph, entry in self.custom_fields.items():
-                    if ph in data:
-                        entry.delete(0, "end")
-                        entry.insert(0, data[ph])
-            else:
-                for field, widget in self.builtin_fields.items():
-                    if field in data:
-                        if isinstance(widget, ctk.CTkEntry):
-                            widget.delete(0, "end")
-                            widget.insert(0, data[field])
-                        elif isinstance(widget, tk.StringVar):
-                            widget.set(data[field])
-                template_name = self.current_template.get()
-                if TEMPLATES[template_name].get("heirs", False) and "heirs" in data:
-                    for i, heir in enumerate(data["heirs"]):
-                        if i < len(self.heir_entries):
-                            name_e, age_e, rel_e = self.heir_entries[i]
-                            name_e.delete(0, "end"); name_e.insert(0, heir.get("name", ""))
-                            age_e.delete(0, "end"); age_e.insert(0, heir.get("age", ""))
-                            rel_e.delete(0, "end"); rel_e.insert(0, heir.get("relation", ""))
-            self.update_preview()
+            for k, val in data.items():
+                if k in self.field_entries:
+                    w = self.field_entries[k]
+                    if isinstance(w, ctk.CTkEntry):
+                        w.delete(0, "end"); w.insert(0, str(val))
+                    elif isinstance(w, tk.StringVar):
+                        w.set(str(val))
+            self.update_live_preview()
+            messagebox.showinfo("यशस्वी", "माहिती लोड झाली!")
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to load data: {e}")
+            messagebox.showerror("त्रुटी", f"डेटा लोड करताना त्रुटी आली: {e}")
 
-    def load_saved_data(self):
-        if os.path.exists("data/saved.json"):
-            try:
-                with open("data/saved.json", "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if self.mode.get() == "custom":
-                    for ph, entry in self.custom_fields.items():
-                        if ph in data:
-                            entry.delete(0, "end")
-                            entry.insert(0, data[ph])
-                else:
-                    for field, widget in self.builtin_fields.items():
-                        if field in data:
-                            if isinstance(widget, ctk.CTkEntry):
-                                widget.delete(0, "end")
-                                widget.insert(0, data[field])
-                            elif isinstance(widget, tk.StringVar):
-                                widget.set(data[field])
-                self.update_preview()
-            except:
-                pass
 
 if __name__ == "__main__":
-    app = AffidavitGenerator()
+    app = AffidavitStudio()
+    app.root.mainloop()
