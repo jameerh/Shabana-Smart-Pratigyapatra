@@ -13,6 +13,7 @@ DVBW_AFFIDAVIT_TEMPLATES = {
         ],
         "heirs": False,
         "preview_font_hint": "DVBW",
+        "required_fields": ["applicant_full_name", "applicant_age", "applicant_occupation", "applicant_village", "property_number", "connection_percentage", "electricity_office", "affidavit_place", "affidavit_date"],
         "template": """¯ÖÏ×ŸÖ–ÖÖ¯Ö¡Ö
 ´ÖÖ ÛúÖµÖÔÛúÖ¸üß ¤Óü›üÖ×¬ÖÛúÖ¸üßÃÖÖê •ÖŸÖ ŸÖÖ •ÖŸÖ ×•Ö ÃÖÖÓÝÖ»Öß µÖÖÓ“µÖÖ ÃÖ´ÖÖê¸ü
 ¯ÖÏ×ŸÖ–ÖÖ¯Ö¡Ö ×»ÖÆæü®Ö ¤êüÞÖÖ¸ü ´Öß {applicant_full_name} ¾ÖµÖ ¾ÖÂÖì {applicant_age} ¾µÖ¾ÖÃÖÖµÖ {applicant_occupation} ¸üÖ {applicant_village} ŸÖÖ •ÖŸÖ ×•Ö ÃÖÖÓÝÖ»Öß.
