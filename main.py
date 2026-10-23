@@ -491,7 +491,7 @@ class AffidavitStudio:
                     "", filled_text
                 )
                 if info.get("preview_font_hint"):
-                    export_legacy_text_docx(filled_text, path, self.preview_font_family.get())
+                    export_legacy_text_docx(filled_text, path, self.preview_font_family.get(), include_stamp_preview=True)
                 else:
                     export_to_docx(
                         filled_text, str(path), barcode_data=None,
