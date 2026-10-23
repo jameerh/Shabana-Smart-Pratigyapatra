@@ -436,3 +436,6 @@ Date {magistrate_date}
 # Additional generic templates based on supplied Maharashtra affidavit samples.
 from additional_templates import GENERIC_FOOD_AFFIDAVIT_TEMPLATES
 TEMPLATES.update(GENERIC_FOOD_AFFIDAVIT_TEMPLATES)
+
+from dvbw_templates import DVBW_AFFIDAVIT_TEMPLATES
+TEMPLATES.update(DVBW_AFFIDAVIT_TEMPLATES)
