@@ -16,6 +16,7 @@ import customtkinter as ctk
 from templates import TEMPLATES
 from docx_export import export_to_docx
 from template_parser import extract_placeholders, create_filled_document
+from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview
 from engine.bold_template_miner import mine_docx
 from engine.template_deduplicator import fingerprint_docx, classify_duplicate
 from engine.section_repeater import detect_repeated_person_sections
@@ -285,24 +286,47 @@ class AffidavitStudio:
         self.update_live_preview()
 
     def _build_mined_template_form(self, template_name: str):
-        """Build form inputs for a newly mined or loaded custom template."""
+        """Build dynamic inputs from placeholders in a loaded DOCX."""
         doc_path = self.mined_templates_library[template_name]
-        placeholders = extract_placeholders(doc_path)
+        fields = extract_docx_fields(doc_path)
 
         info_card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
         info_card.pack(fill="x", padx=6, pady=4)
-        ctk.CTkLabel(info_card, text=f"📄 Mined Template: {template_name}", font=("Segoe UI", 12, "bold"), text_color="#A78BFA").pack(anchor="w", padx=10, pady=6)
+        ctk.CTkLabel(
+            info_card,
+            text=f"📄 Smart Template: {template_name}  •  {len(fields)} fields detected",
+            font=("Segoe UI", 12, "bold"),
+            text_color="#A78BFA",
+        ).pack(anchor="w", padx=10, pady=6)
 
-        for ph in sorted(placeholders):
+        if not fields:
+            ctk.CTkLabel(
+                self.form_scroll,
+                text="या DOCX मध्ये [वय] किंवा {applicant_age} सारखे placeholders आढळले नाहीत.\n"
+                     "मजकूरात बदलता येणाऱ्या जागा चौकोनी कंसात [अशी] किंवा curly braces मध्ये {अशी} ठेवा.",
+                font=("Mangal", 12),
+                text_color="#FBBF24",
+                justify="left",
+                wraplength=460,
+            ).pack(fill="x", padx=10, pady=8)
+
+        for field in fields:
+            key = field["key"]
+            label = field["label"] or infer_label(key)
             card = ctk.CTkFrame(self.form_scroll, fg_color="#0F172A", corner_radius=8)
             card.pack(fill="x", padx=6, pady=4)
 
-            label = ph.replace("_", " ").title()
-            ctk.CTkLabel(card, text=f"{label}:", font=("Segoe UI", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
-            entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
+            ctk.CTkLabel(
+                card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1"
+            ).pack(anchor="w", padx=10, pady=(6, 2))
+            entry = ctk.CTkEntry(
+                card, height=32, font=("Mangal", 12),
+                fg_color="#1E293B", border_color="#475569",
+                placeholder_text=key if key != label else "",
+            )
             entry.pack(fill="x", padx=10, pady=(0, 6))
             entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
-            self.field_entries[ph] = entry
+            self.field_entries[key] = entry
 
         self.update_live_preview()
 
@@ -339,18 +363,8 @@ class AffidavitStudio:
 
         if template_name in self.mined_templates_library:
             doc_path = self.mined_templates_library[template_name]
-            # Render custom template text with replaced values
             try:
-                from docx import Document
-                doc = Document(doc_path)
-                full_text = []
-                for p in doc.paragraphs:
-                    p_text = p.text
-                    for k, v in data.items():
-                        if v:
-                            p_text = p_text.replace(f"{{{k}}}", v)
-                    full_text.append(p_text)
-                self.preview_text.insert("1.0", "\n\n".join(full_text))
+                self.preview_text.insert("1.0", build_docx_preview(doc_path, data))
             except Exception as ex:
                 self.preview_text.insert("1.0", f"Preview Error: {ex}")
             return
@@ -481,6 +495,15 @@ class AffidavitStudio:
             return
         try:
             name = Path(file_path).stem.replace("_", " ").title()
+            detected = extract_docx_fields(file_path)
+            if not detected:
+                proceed = messagebox.askyesno(
+                    "Placeholders आढळले नाहीत",
+                    "या DOCX मध्ये [वय] किंवा {applicant_age} सारखे placeholders सापडले नाहीत.\n\n"
+                    "फाइल लोड करू का? नंतर form fields दिसणार नाहीत, जोपर्यंत placeholders जोडले जात नाहीत."
+                )
+                if not proceed:
+                    return
             self.mined_templates_library[name] = file_path
             current_vals = list(self.template_combo.cget("values"))
             if name not in current_vals:
