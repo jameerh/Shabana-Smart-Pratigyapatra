@@ -39,7 +39,9 @@ class DvbwTemplateTests(unittest.TestCase):
             export_legacy_text_docx(legacy_text, path, "DVBW Series")
             doc = Document(path)
             self.assertEqual(doc.paragraphs[0].runs[0].font.name, "DVBW Series")
-            self.assertEqual(doc.paragraphs[1].text, "{applicant_full_name}")
+            self.assertTrue(any("{applicant_full_name}" in paragraph.text for paragraph in doc.paragraphs))
+            self.assertEqual(len(doc.tables), 1)
+            self.assertEqual(doc.tables[0].cell(0, 0).text, "")
 
     def test_detects_explicit_font_and_placeholder_in_docx(self):
         with tempfile.TemporaryDirectory() as td:
