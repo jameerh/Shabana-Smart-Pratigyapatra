@@ -510,6 +510,27 @@ def export_legacy_text_docx(text, filename, font_name):
     section.top_margin = Inches(0.8)
     section.bottom_margin = Inches(0.8)
 
+    # Reserve a real 2 x 2 inch stamp-paper area at the top of the final
+    # document. Keep it blank in the exported DOCX; preview UI may show a guide.
+    stamp_table = doc.add_table(rows=1, cols=1)
+    stamp_table.autofit = False
+    stamp_cell = stamp_table.cell(0, 0)
+    stamp_cell.width = Inches(2)
+    stamp_cell.height = Inches(2)
+    stamp_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    stamp_cell.text = ""
+    stamp_cell._tc.get_or_add_tcPr()
+    stamp_paragraph = stamp_cell.paragraphs[0]
+    stamp_paragraph.paragraph_format.space_after = Pt(0)
+    stamp_paragraph.paragraph_format.line_spacing = Pt(1)
+    stamp_table.rows[0].height = Inches(2)
+
+    # Leave a small gap after the stamp area before the affidavit begins.
+    gap = doc.add_paragraph()
+    gap.paragraph_format.space_after = Pt(4)
+    gap.paragraph_format.space_before = Pt(0)
+    gap.paragraph_format.line_spacing = Pt(4)
+
     first_content = True
     for line in text.splitlines():
         paragraph = doc.add_paragraph()
