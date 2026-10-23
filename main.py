@@ -19,7 +19,7 @@ import customtkinter as ctk
 from templates import TEMPLATES
 from docx_export import export_to_docx, export_legacy_text_docx, ISM_AVAILABLE, unicode_to_ism
 from engine.docx_preview_renderer import render_docx_pages, convert_docx_to_pdf, PreviewRenderError
-from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots
+from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots, compare_text_documents
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
 from engine.bold_template_miner import mine_docx
@@ -183,6 +183,16 @@ class AffidavitStudio:
             profile_row, text="Load Applicant Profile", width=145, height=26,
             font=("Segoe UI", 11), fg_color="#475569",
             command=self.load_applicant_profile_dialog
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            profile_row, text="Template History", width=112, height=26,
+            font=("Segoe UI", 11), fg_color="#475569",
+            command=self.browse_template_history
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            profile_row, text="Compare DOCX", width=100, height=26,
+            font=("Segoe UI", 11), fg_color="#475569",
+            command=self.compare_with_docx
         ).pack(side="left", padx=2)
 
         # ISM Checkbox
@@ -849,6 +859,55 @@ class AffidavitStudio:
             f"सर्व टेम्पलेट्स स्टुडिओमध्ये लोड करण्यात आले आहेत!"
         )
         messagebox.showinfo("बल्क स्कॅनर रिपोर्ट (Scan Report)", msg)
+
+    def browse_template_history(self):
+        """Open an archived copy of an imported template from local history."""
+        history_root = Path.home() / "Documents" / "Shabana Smart Pratigyapatra" / "template_history"
+        selected = filedialog.askopenfilename(
+            title="Select an archived DOCX template",
+            initialdir=str(history_root) if history_root.exists() else str(Path.home() / "Documents"),
+            filetypes=[("Word documents", "*.docx")],
+        )
+        if selected:
+            # Load the archived copy through the normal import/placeholder pipeline.
+            self.mined_templates_library[Path(selected).stem] = selected
+            names = list(self.template_combo.cget("values"))
+            if Path(selected).stem not in names:
+                names.append(Path(selected).stem)
+                self.template_combo.configure(values=names)
+            self.current_template.set(Path(selected).stem)
+            self.on_template_change()
+            detected = detect_docx_font_family(selected)
+            if detected:
+                self._set_preview_font(detected)
+
+    def compare_with_docx(self):
+        """Show a line-level text comparison against a selected reference DOCX."""
+        selected = filedialog.askopenfilename(
+            title="Select reference DOCX for comparison",
+            filetypes=[("Word documents", "*.docx")],
+        )
+        if not selected:
+            return
+        try:
+            reference = build_docx_preview(selected, {})
+            current = self.preview_text.get("1.0", "end-1c")
+            result = compare_text_documents(reference, current)
+            window = ctk.CTkToplevel(self.root)
+            window.title("Document Text Comparison")
+            window.geometry("900x620")
+            ctk.CTkLabel(
+                window,
+                text=f"Line-level text similarity: {result['similarity_percent']}%  •  "
+                     f"+{len(result['added_lines'])} added / -{len(result['removed_lines'])} removed",
+                font=("Segoe UI", 13, "bold"),
+            ).pack(fill="x", padx=12, pady=10)
+            diff_box = ctk.CTkTextbox(window, wrap="none", font=("Consolas", 11))
+            diff_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+            diff_box.insert("1.0", result["unified_diff"] or "No text differences found.")
+            diff_box.configure(state="disabled")
+        except Exception as exc:
+            messagebox.showerror("Comparison failed", str(exc))
 
     def save_applicant_profile_dialog(self):
         """Save reusable applicant details locally as a named profile."""
