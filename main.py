@@ -679,6 +679,27 @@ class AffidavitStudio:
         """Export completed document to Word (.docx) with Marathi Unicode / ISM."""
         template_name = self.current_template.get()
         data = self.get_current_data()
+        template_info = TEMPLATES.get(template_name, {})
+        required = template_info.get("required_fields", [])
+        missing = [field for field in required if not str(data.get(field, "")).strip()]
+        if missing:
+            labels = {
+                "applicant_full_name": "अर्जदाराचे पूर्ण नाव",
+                "applicant_age": "वय",
+                "applicant_occupation": "व्यवसाय",
+                "applicant_village": "गाव",
+                "property_number": "मालमत्ता / गट क्रमांक",
+                "connection_percentage": "कनेक्शन टक्केवारी",
+                "electricity_office": "वीज कार्यालय",
+                "affidavit_place": "ठिकाण",
+                "affidavit_date": "दिनांक",
+            }
+            messagebox.showwarning(
+                "माहिती अपूर्ण",
+                "कृपया निर्यात करण्यापूर्वी ही माहिती भरा:\n\n"
+                + "\n".join("• " + labels.get(field, field) for field in missing)
+            )
+            return
 
         filename = filedialog.asksaveasfilename(
             defaultextension=".docx",
