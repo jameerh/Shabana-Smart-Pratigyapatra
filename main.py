@@ -822,7 +822,7 @@ class AffidavitStudio:
 
     def clear_form(self):
         for w in self.field_entries.values():
-            if isinstance(w, ctk.CTkEntry):
+            if hasattr(w, "delete"):
                 w.delete(0, "end")
         for ne, ae, re_entry in self.heir_entries:
             ne.delete(0, "end"); ae.delete(0, "end"); re_entry.delete(0, "end")
@@ -869,6 +869,12 @@ class AffidavitStudio:
                 "कृपया निर्यात करण्यापूर्वी ही माहिती भरा:\n\n"
                 + "\n".join("• " + labels.get(field, field) for field in missing)
             )
+            return
+
+        try:
+            stamp_width, stamp_height = self.get_stamp_dimensions()
+        except ValueError as exc:
+            messagebox.showwarning("Invalid stamp dimensions", str(exc))
             return
 
         filename = filedialog.asksaveasfilename(
