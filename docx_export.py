@@ -47,26 +47,25 @@ def add_page_border(doc):
         borders.append(border)
     sectPr.append(borders)
 
-def add_stamp_box(doc, font_name, use_ism):
+def add_stamp_box(doc, font_name, use_ism, stamp_width=2.0, stamp_height=2.0):
     """Add a 2x2 inch box for stamp, with appropriate font and conversion."""
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
     table.allow_autofit = False
     cell = table.cell(0, 0)
-    cell.width = Inches(2)
-    cell.height = Inches(2)
+    cell.width = Inches(stamp_width)
+    cell.height = Inches(stamp_height)
+    table.columns[0].width = Inches(stamp_width)
+    table.rows[0].height = Inches(stamp_height)
+    table.rows[0].height_rule = 2
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     set_cell_border(cell, top={'val':'single','sz':'4'}, left={'val':'single','sz':'4'},
                     bottom={'val':'single','sz':'4'}, right={'val':'single','sz':'4'})
+    # The final document reserves a blank stamp area; do not print a fake
+    # stamp image or instructional text into the legal document.
     p = cell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    stamp_text = "स्टॅम्पसाठी जागा"
-    if use_ism and ISM_AVAILABLE:
-        stamp_text = unicode_to_ism(stamp_text)
-    run = p.add_run(stamp_text)
-    run.font.name = font_name
-    run.font.size = Pt(10)
-    run.italic = True
+    p.paragraph_format.space_after = Pt(0)
     return table
 
 def add_header(doc, taluka_name, font_name, use_ism):
@@ -190,7 +189,7 @@ def combine_paragraphs(lines):
         paragraphs.append(" ".join(current))
     return paragraphs
 
-def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_name="", use_ism=False):
+def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_name="", use_ism=False, stamp_width=2.0, stamp_height=2.0):
     # Determine font and optionally convert the main text
     if use_ism and ISM_AVAILABLE:
         text = unicode_to_ism(text)
@@ -207,7 +206,7 @@ def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_na
 
     add_page_border(doc)
     add_header(doc, taluka_name, font_name, use_ism)
-    add_stamp_box(doc, font_name, use_ism)
+    add_stamp_box(doc, font_name, use_ism, stamp_width, stamp_height)
 
     if barcode_data:
         add_barcode(doc, barcode_data, position="top-right")
@@ -495,4 +494,78 @@ def export_waras_filled(filename, data, taluka_name="", use_ism=False):
     add_notary_block(doc, font_name, use_ism)
     add_page_number(doc, font_name, use_ism)
 
+    doc.save(filename)
+
+def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=False, stamp_width=2.0, stamp_height=2.0):
+    """Export text that is already encoded for a legacy font without re-converting it.
+
+    This path is for user-supplied legacy-encoded templates such as DVBW. It
+    deliberately avoids Unicode-to-ISM conversion and extra boilerplate text.
+    """
+    doc = Document()
+    section = doc.sections[0]
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+    section.top_margin = Inches(0.8)
+    section.bottom_margin = Inches(0.8)
+
+    # Reserve a real 2 x 2 inch stamp-paper area at the top of the final
+    # document. Keep it blank in the exported DOCX; preview UI may show a guide.
+    stamp_table = doc.add_table(rows=1, cols=1)
+    stamp_table.autofit = False
+    stamp_cell = stamp_table.cell(0, 0)
+    stamp_cell.width = Inches(stamp_width)
+    stamp_cell.height = Inches(stamp_height)
+    stamp_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+    stamp_cell.text = ""
+    stamp_cell._tc.get_or_add_tcPr()
+    stamp_paragraph = stamp_cell.paragraphs[0]
+    stamp_paragraph.paragraph_format.space_after = Pt(0)
+    stamp_paragraph.paragraph_format.line_spacing = Pt(1)
+    stamp_table.columns[0].width = Inches(stamp_width)
+    stamp_table.rows[0].height = Inches(stamp_height)
+    if include_stamp_preview:
+        # This dummy stamp graphic exists only in the temporary preview DOCX.
+        # Normal final export keeps the stamp cell completely blank.
+        from PIL import Image as PILImage, ImageDraw, ImageFont
+        stamp_image = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        stamp_image.close()
+        try:
+            canvas = PILImage.new("RGB", (600, 600), "white")
+            draw = ImageDraw.Draw(canvas)
+            draw.rectangle((8, 8, 592, 592), outline="#8B5E3C", width=8)
+            draw.rectangle((28, 28, 572, 572), outline="#8B5E3C", width=2)
+            draw.text((300, 180), "RS. 500", fill="#8B5E3C", anchor="mm")
+            draw.text((300, 270), "STAMP PAPER", fill="#8B5E3C", anchor="mm")
+            draw.text((300, 350), "PREVIEW ONLY", fill="#8B5E3C", anchor="mm")
+            canvas.save(stamp_image.name)
+            stamp_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            stamp_paragraph.add_run().add_picture(stamp_image.name, width=Inches(max(0.5, stamp_width - 0.25)), height=Inches(max(0.5, stamp_height - 0.25)))
+        finally:
+            try:
+                os.unlink(stamp_image.name)
+            except OSError:
+                pass
+
+    # Leave a small gap after the stamp area before the affidavit begins.
+    gap = doc.add_paragraph()
+    gap.paragraph_format.space_after = Pt(4)
+    gap.paragraph_format.space_before = Pt(0)
+    gap.paragraph_format.line_spacing = Pt(4)
+
+    first_content = True
+    for line in text.splitlines():
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(5)
+        if not line.strip():
+            continue
+        run = paragraph.add_run(line)
+        run.font.name = font_name
+        run.font._element.rPr.rFonts.set(qn("w:eastAsia"), font_name)
+        run.font.size = Pt(12)
+        if first_content:
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run.bold = True
+            run.font.size = Pt(14)
+            first_content = False
     doc.save(filename)

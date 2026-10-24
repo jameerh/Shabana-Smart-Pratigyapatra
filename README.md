@@ -7,22 +7,31 @@
 
 ## 🌟 Key Features
 
-1. **Dual-Pane Live Preview**
+1. **Rendered Document Preview and PDF Export**
+   - Renders temporary DOCX files locally through LibreOffice and displays page images using PyMuPDF.
+   - Export the current document to PDF from the preview toolbar. LibreOffice output can differ slightly from Microsoft Word.
+
+2. **Local Applicant Profiles and Template History**
+   - Save/load reusable applicant data as local JSON profiles.
+   - Automatically archive content-addressed copies of imported DOCX templates with SHA-256 metadata.
+   - Keep all profile and template-history data on the local computer.
+
+3. **Dual-Pane Live Preview**
    - **Left Pane:** Categorized form fields (Applicant details, heirs, Gazette changes, etc.) with intuitive inputs.
    - **Right Pane:** Real-time A4 document preview that reflects your edits instantaneously without re-generating files.
 
-2. **Bulk Bold-Letter Template Extractor**
+4. **Bulk Bold-Letter Template Extractor**
    - Ingests entire folders containing hundreds of pre-filled legacy `.docx` files.
    - Automatically detects data filled in **bold letters** (Mangal font) and converts them into smart template variables (e.g., `{applicant_name}`, `{aadhaar_no}`).
    - **Smart Deduplication:** Identifies repeated multi-page person entries (e.g., Ramesh on Page 1, Dharmesh on Page 2) and removes duplicate template instances.
 
-3. **Maharashtra Affidavit Suite**
+5. **Maharashtra Affidavit Suite**
    - वारस प्रतिज्ञापत्र (Heirship Affidavit) with dynamic heir table generation.
    - विवाहानंतर नाव बदलाबाबत प्रतिज्ञापत्र (Gazette Name Change Declaration).
    - उत्पन्न / वय / रहिवासी प्रतिज्ञापत्र (Income, Age & Domicile Affidavits).
    - ऑटो बारकोड जनरेशन (Barcode integration for document verification).
 
-4. **Dual Font & Script Engine**
+6. **Dual Font & Script Engine**
    - Native Marathi Unicode (Mangal font).
    - Built-in ISM / DVBW Shree-Lipi bi-directional conversion engine.
 
@@ -51,7 +60,9 @@ templete_generator/
 
 ### Prerequisites
 - Python 3.9+
-- Microsoft Word (recommended for viewing exported `.docx`)
+- Microsoft Word (recommended for final visual verification of exported `.docx`)
+- LibreOffice installed locally for rendered page preview (required for the new WYSIWYG preview)
+- PyMuPDF installed from `requirements.txt` to display rendered PDF pages
 - Mangal font (standard Windows Hindi/Marathi font)
 
 ### Installation
@@ -66,7 +77,8 @@ templete_generator/
    pip install -r requirements.txt
    ```
 
-3. Launch the application:
+3. Install LibreOffice from https://www.libreoffice.org/download/download-libreoffice/ if it is not already installed. The app invokes its headless `soffice` executable for local rendering; documents are rendered locally, not uploaded.
+4. Launch the application:
    ```bash
    python main.py
    ```

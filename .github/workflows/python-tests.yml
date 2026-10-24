@@ -1,0 +1,28 @@
+name: Python tests
+
+on:
+  push:
+    branches: [main, feat/smart-docx-template-import]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unittest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python-version: ["3.11"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile application and engine modules
+        run: python -m compileall -q main.py docx_export.py template_parser.py engine tests
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v

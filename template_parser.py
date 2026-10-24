@@ -1,116 +1,96 @@
-# template_parser.py
-import re
+"""Placeholder extraction and filling for reusable Word templates."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
 from docx import Document
 from docx.shared import Pt
 
-def extract_placeholders(docx_path):
-    """
-    Extract all unique placeholders from a Word document.
-    Placeholders are strings like {field_name} (case-sensitive).
-    """
-    doc = Document(docx_path)
-    placeholders = set()
-    pattern = re.compile(r'\{([^{}]+)\}')
+from engine.smart_docx_import import (
+    PLACEHOLDER_PATTERN,
+    extract_docx_fields,
+    replace_placeholder_text,
+)
 
-    for para in doc.paragraphs:
-        text = para.text
-        matches = pattern.findall(text)
-        placeholders.update(matches)
 
-    for table in doc.tables:
+def extract_placeholders(docx_path: str | Path) -> list[str]:
+    """Extract unique square-bracket and brace placeholders in document order."""
+    return [field["key"] for field in extract_docx_fields(docx_path)]
+
+
+def _iter_paragraphs(container):
+    """Yield paragraphs in the document, including table cells and headers/footers."""
+    for paragraph in getattr(container, "paragraphs", []):
+        yield paragraph
+    for table in getattr(container, "tables", []):
         for row in table.rows:
             for cell in row.cells:
-                text = cell.text
-                matches = pattern.findall(text)
-                placeholders.update(matches)
+                yield from _iter_paragraphs(cell)
 
-    return list(placeholders)
 
-def replace_placeholders(doc, data):
+def _replace_paragraph(paragraph, data: dict[str, Any], show_empty: bool = False) -> None:
+    """Replace placeholders in a paragraph, retaining its paragraph properties.
+
+    Word can split a placeholder over several runs. Rebuilding only the affected
+    paragraph avoids leaving part of a placeholder behind. The first run's
+    character formatting is retained; paragraph alignment/spacing remains intact.
     """
-    Replace all placeholders in the document with values from data dict.
-    Works on paragraphs and tables, preserving formatting from the first run.
-    """
-    pattern = re.compile(r'\{([^{}]+)\}')
+    original = paragraph.text
+    if not PLACEHOLDER_PATTERN.search(original):
+        return
+    replacement = replace_placeholder_text(original, data, show_empty=show_empty)
+    if replacement == original:
+        return
 
-    def replace_in_text(text):
-        def repl(match):
-            key = match.group(1)
-            return data.get(key, match.group(0))
-        return pattern.sub(repl, text)
+    first_run = paragraph.runs[0] if paragraph.runs else None
+    formatting = None
+    if first_run is not None:
+        font = first_run.font
+        formatting = {
+            "bold": font.bold,
+            "italic": font.italic,
+            "underline": font.underline,
+            "size": font.size,
+            "name": font.name,
+            "color": font.color.rgb if font.color and font.color.type is not None else None,
+        }
+    paragraph.clear()
+    run = paragraph.add_run(replacement)
+    if formatting:
+        run.font.bold = formatting["bold"]
+        run.font.italic = formatting["italic"]
+        run.font.underline = formatting["underline"]
+        run.font.size = formatting["size"]
+        run.font.name = formatting["name"]
+        if formatting["color"]:
+            run.font.color.rgb = formatting["color"]
+    else:
+        run.font.name = "Mangal"
+        run.font.size = Pt(14)
 
-    # Process paragraphs
-    for para in doc.paragraphs:
-        text = para.text
-        if pattern.search(text):
-            new_text = replace_in_text(text)
-            # Preserve formatting from the first run (if any)
-            if para.runs:
-                first_run = para.runs[0]
-                font = first_run.font
-                bold = font.bold
-                italic = font.italic
-                underline = font.underline
-                color = font.color.rgb if font.color else None
-                size = font.size
-                name = font.name
-                # Clear all runs and add new text
-                para.clear()
-                run = para.add_run(new_text)
-                # Restore formatting
-                run.font.bold = bold
-                run.font.italic = italic
-                run.font.underline = underline
-                if color:
-                    run.font.color.rgb = color
-                run.font.size = size
-                run.font.name = name
-            else:
-                # No runs → create one with default style
-                para.clear()
-                run = para.add_run(new_text)
-                run.font.name = "Mangal"
-                run.font.size = Pt(14)
 
-    # Process tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    text = para.text
-                    if pattern.search(text):
-                        new_text = replace_in_text(text)
-                        if para.runs:
-                            first_run = para.runs[0]
-                            font = first_run.font
-                            bold = font.bold
-                            italic = font.italic
-                            underline = font.underline
-                            color = font.color.rgb if font.color else None
-                            size = font.size
-                            name = font.name
-                            para.clear()
-                            run = para.add_run(new_text)
-                            run.font.bold = bold
-                            run.font.italic = italic
-                            run.font.underline = underline
-                            if color:
-                                run.font.color.rgb = color
-                            run.font.size = size
-                            run.font.name = name
-                        else:
-                            para.clear()
-                            run = para.add_run(new_text)
-                            run.font.name = "Mangal"
-                            run.font.size = Pt(14)
-
+def replace_placeholders(doc, data, show_empty: bool = False):
+    """Replace recognized placeholders throughout a DOCX document."""
+    containers = [doc]
+    for section in doc.sections:
+        containers.extend([section.header, section.footer, section.first_page_header,
+                           section.first_page_footer, section.even_page_header,
+                           section.even_page_footer])
+    seen_paragraphs = set()
+    for container in containers:
+        for paragraph in _iter_paragraphs(container):
+            identity = id(paragraph._p)
+            if identity in seen_paragraphs:
+                continue
+            seen_paragraphs.add(identity)
+            _replace_paragraph(paragraph, data, show_empty=show_empty)
     return doc
 
-def create_filled_document(template_path, data, output_path):
-    """
-    Load template, replace placeholders, save to output_path.
-    """
-    doc = Document(template_path)
-    doc = replace_placeholders(doc, data)
-    doc.save(output_path)
-    return output_path
+
+def create_filled_document(template_path, data, output_path, show_empty: bool = False):
+    """Load a template, replace placeholders, and save the completed document."""
+    doc = Document(str(template_path))
+    replace_placeholders(doc, data, show_empty=show_empty)
+    doc.save(str(output_path))
+    return str(output_path)
