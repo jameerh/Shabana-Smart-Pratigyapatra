@@ -80,3 +80,13 @@ def validate_date(value):
         except ValueError:
             pass
     return False
+
+
+def clear_form_history(history_file):
+    """Delete local applicant form history explicitly requested by the operator."""
+    path = Path(history_file)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise OSError(f"Could not delete form history at {path}: {exc}") from exc
+    return not path.exists()
