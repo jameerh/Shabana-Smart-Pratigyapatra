@@ -3,3 +3,4 @@ python-barcode
 pillow
 PyMuPDF
 customtkinter
+tkcalendar
