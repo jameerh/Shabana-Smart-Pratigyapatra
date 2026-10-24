@@ -359,6 +359,34 @@ class AffidavitStudio:
             self.zoom_level.set(sz)
             self.on_preview_font_change()
 
+    def _history_autocomplete(self, event, widget, field_key):
+        """Filter saved cross-template values while preserving free typing."""
+        query = widget.get().strip().casefold()
+        values = history_suggestions(self.history_file, field_key, limit=100)
+        matches = [value for value in values if query in value.casefold()] if query else values
+        widget.configure(values=matches[:30])
+        self.update_live_preview()
+
+    def open_date_picker(self, widget):
+        """Open a calendar popup; gracefully explain if tkcalendar isn't installed."""
+        try:
+            from tkcalendar import Calendar
+        except ImportError:
+            messagebox.showwarning("Calendar unavailable", "Install the calendar dependency with: pip install tkcalendar")
+            return
+        popup = ctk.CTkToplevel(self.root)
+        popup.title("Select date")
+        popup.geometry("320x300")
+        popup.transient(self.root)
+        calendar = Calendar(popup, date_pattern="dd/mm/yyyy")
+        calendar.pack(fill="both", expand=True, padx=10, pady=10)
+        def choose():
+            widget.delete(0, "end")
+            widget.insert(0, calendar.get_date())
+            popup.destroy()
+            self.update_live_preview()
+        ctk.CTkButton(popup, text="Use selected date", command=choose).pack(pady=(0, 10))
+
     def _filter_templates(self, event=None):
         query = self.template_search_var.get().strip().casefold()
         names = list(TEMPLATES.keys()) + list(self.mined_templates_library.keys())
@@ -431,10 +459,19 @@ class AffidavitStudio:
                 }
                 label = field_labels.get(field, field.replace("_", " ").title())
                 ctk.CTkLabel(card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
-                entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
-                entry.pack(fill="x", padx=10, pady=(0, 6))
+                suggestions = history_suggestions(self.history_file, field, limit=30) if ("name" in field or "mobile" in field or "phone" in field) else []
+                if suggestions:
+                    entry = ttk.Combobox(card, values=suggestions, font=("Mangal", 12))
+                    entry.configure(state="normal")
+                    entry.pack(fill="x", padx=10, pady=(0, 6))
+                    entry.bind("<KeyRelease>", lambda e, w=entry, k=field: self._history_autocomplete(e, w, k))
+                else:
+                    entry = ctk.CTkEntry(card, height=32, font=("Mangal", 12), fg_color="#1E293B", border_color="#475569")
+                    entry.pack(fill="x", padx=10, pady=(0, 6))
                 entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
                 self.field_entries[field] = entry
+                if "date" in field:
+                    ctk.CTkButton(card, text="📅 Calendar", width=95, height=26, command=lambda w=entry: self.open_date_picker(w)).pack(anchor="e", padx=10, pady=(0, 6))
 
         # Heirs section if supported
         if has_heirs:
@@ -494,14 +531,23 @@ class AffidavitStudio:
             ctk.CTkLabel(
                 card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1"
             ).pack(anchor="w", padx=10, pady=(6, 2))
-            entry = ctk.CTkEntry(
-                card, height=32, font=("Mangal", 12),
-                fg_color="#1E293B", border_color="#475569",
-                placeholder_text=key if key != label else "",
-            )
-            entry.pack(fill="x", padx=10, pady=(0, 6))
+            suggestions = history_suggestions(self.history_file, key, limit=30) if ("name" in key or "mobile" in key or "phone" in key) else []
+            if suggestions:
+                entry = ttk.Combobox(card, values=suggestions, font=("Mangal", 12))
+                entry.configure(state="normal")
+                entry.pack(fill="x", padx=10, pady=(0, 6))
+                entry.bind("<KeyRelease>", lambda e, w=entry, k=key: self._history_autocomplete(e, w, k))
+            else:
+                entry = ctk.CTkEntry(
+                    card, height=32, font=("Mangal", 12),
+                    fg_color="#1E293B", border_color="#475569",
+                    placeholder_text=key if key != label else "",
+                )
+                entry.pack(fill="x", padx=10, pady=(0, 6))
             entry.bind("<KeyRelease>", lambda e: self.update_live_preview())
             self.field_entries[key] = entry
+            if "date" in key:
+                ctk.CTkButton(card, text="📅 Calendar", width=95, height=26, command=lambda w=entry: self.open_date_picker(w)).pack(anchor="e", padx=10, pady=(0, 6))
 
         self.update_live_preview()
 
@@ -787,6 +833,13 @@ class AffidavitStudio:
         template_name = self.current_template.get()
         data = self.get_current_data()
         template_info = TEMPLATES.get(template_name, {})
+        for key, value in data.items():
+            if ("mobile" in key.casefold() or "phone" in key.casefold()) and not validate_mobile(value):
+                messagebox.showwarning("Invalid mobile number", f"{key}: enter a valid 10-digit Indian mobile number.")
+                return
+            if "date" in key.casefold() and value and not validate_date(value):
+                messagebox.showwarning("Invalid date", f"{key}: use DD/MM/YYYY format or choose from the calendar.")
+                return
         required = template_info.get("required_fields", [])
         missing = [field for field in required if not str(data.get(field, "")).strip()]
         if missing:
@@ -835,6 +888,10 @@ class AffidavitStudio:
                     )
                 else:
                     export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get())
+            try:
+                append_form_history(self.history_file, template_name, data)
+            except Exception as history_error:
+                messagebox.showwarning("History warning", f"Document exported, but history could not be saved: {history_error}")
             messagebox.showinfo("यशस्वी (Success)", f"दस्तऐवज सेव्ह करण्यात आला आहे:\n{filename}")
         except Exception as e:
             messagebox.showerror("त्रुटी (Error)", f"Word फाइल तयार करताना त्रुटी आली:\n{e}")
