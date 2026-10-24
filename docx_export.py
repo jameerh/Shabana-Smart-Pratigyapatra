@@ -47,14 +47,17 @@ def add_page_border(doc):
         borders.append(border)
     sectPr.append(borders)
 
-def add_stamp_box(doc, font_name, use_ism):
+def add_stamp_box(doc, font_name, use_ism, stamp_width=2.0, stamp_height=2.0):
     """Add a 2x2 inch box for stamp, with appropriate font and conversion."""
     table = doc.add_table(rows=1, cols=1)
     table.autofit = False
     table.allow_autofit = False
     cell = table.cell(0, 0)
-    cell.width = Inches(2)
-    cell.height = Inches(2)
+    cell.width = Inches(stamp_width)
+    cell.height = Inches(stamp_height)
+    table.columns[0].width = Inches(stamp_width)
+    table.rows[0].height = Inches(stamp_height)
+    table.rows[0].height_rule = 2
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     set_cell_border(cell, top={'val':'single','sz':'4'}, left={'val':'single','sz':'4'},
                     bottom={'val':'single','sz':'4'}, right={'val':'single','sz':'4'})
@@ -190,7 +193,7 @@ def combine_paragraphs(lines):
         paragraphs.append(" ".join(current))
     return paragraphs
 
-def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_name="", use_ism=False):
+def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_name="", use_ism=False, stamp_width=2.0, stamp_height=2.0):
     # Determine font and optionally convert the main text
     if use_ism and ISM_AVAILABLE:
         text = unicode_to_ism(text)
@@ -207,7 +210,7 @@ def export_to_docx(text, filename="affidavit.docx", barcode_data=None, taluka_na
 
     add_page_border(doc)
     add_header(doc, taluka_name, font_name, use_ism)
-    add_stamp_box(doc, font_name, use_ism)
+    add_stamp_box(doc, font_name, use_ism, stamp_width, stamp_height)
 
     if barcode_data:
         add_barcode(doc, barcode_data, position="top-right")
@@ -497,7 +500,7 @@ def export_waras_filled(filename, data, taluka_name="", use_ism=False):
 
     doc.save(filename)
 
-def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=False):
+def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=False, stamp_width=2.0, stamp_height=2.0):
     """Export text that is already encoded for a legacy font without re-converting it.
 
     This path is for user-supplied legacy-encoded templates such as DVBW. It
@@ -515,15 +518,16 @@ def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=Fal
     stamp_table = doc.add_table(rows=1, cols=1)
     stamp_table.autofit = False
     stamp_cell = stamp_table.cell(0, 0)
-    stamp_cell.width = Inches(2)
-    stamp_cell.height = Inches(2)
+    stamp_cell.width = Inches(stamp_width)
+    stamp_cell.height = Inches(stamp_height)
     stamp_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     stamp_cell.text = ""
     stamp_cell._tc.get_or_add_tcPr()
     stamp_paragraph = stamp_cell.paragraphs[0]
     stamp_paragraph.paragraph_format.space_after = Pt(0)
     stamp_paragraph.paragraph_format.line_spacing = Pt(1)
-    stamp_table.rows[0].height = Inches(2)
+    stamp_table.columns[0].width = Inches(stamp_width)
+    stamp_table.rows[0].height = Inches(stamp_height)
     if include_stamp_preview:
         # This dummy stamp graphic exists only in the temporary preview DOCX.
         # Normal final export keeps the stamp cell completely blank.
@@ -540,7 +544,7 @@ def export_legacy_text_docx(text, filename, font_name, include_stamp_preview=Fal
             draw.text((300, 350), "PREVIEW ONLY", fill="#8B5E3C", anchor="mm")
             canvas.save(stamp_image.name)
             stamp_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            stamp_paragraph.add_run().add_picture(stamp_image.name, width=Inches(1.75), height=Inches(1.75))
+            stamp_paragraph.add_run().add_picture(stamp_image.name, width=Inches(max(0.5, stamp_width - 0.25)), height=Inches(max(0.5, stamp_height - 0.25)))
         finally:
             try:
                 os.unlink(stamp_image.name)
