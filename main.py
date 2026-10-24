@@ -22,6 +22,7 @@ from engine.docx_preview_renderer import render_docx_pages, convert_docx_to_pdf,
 from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots, compare_text_documents
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
+from engine.form_history import append_form_history, history_suggestions, validate_mobile, validate_date
 from engine.bold_template_miner import mine_docx
 from engine.template_deduplicator import fingerprint_docx, classify_duplicate
 from engine.section_repeater import detect_repeated_person_sections
@@ -45,6 +46,9 @@ class AffidavitStudio:
         self.use_ism = tk.BooleanVar(value=False)
         self.preview_font_family = tk.StringVar(value="Mangal")
         self.available_preview_fonts = []
+        self.history_file = Path.home() / 'Documents' / 'Shabana Smart Pratigyapatra' / 'form_history.json'
+        self.stamp_width_var = tk.StringVar(value='2.0')
+        self.stamp_height_var = tk.StringVar(value='2.0')
         self._preview_after_id = None
         self._preview_image_refs = []
         self._preview_pages_frame = None
@@ -95,13 +99,14 @@ class AffidavitStudio:
         center_frame.pack(side="left", padx=30, pady=10)
 
         ctk.CTkLabel(center_frame, text="निवडा (Template):", font=("Mangal", 12, "bold"), text_color="#E2E8F0").pack(side="left", padx=(0, 8))
+        self.template_search_var = tk.StringVar()
+        self.template_search_entry = ctk.CTkEntry(center_frame, textvariable=self.template_search_var, width=170, placeholder_text="Search templates…")
+        self.template_search_entry.pack(side="left", padx=(5, 2))
+        self.template_search_entry.bind("<KeyRelease>", self._filter_templates)
+        self.template_search_entry.bind("<Return>", self._choose_first_template_match)
         self.template_combo = ctk.CTkComboBox(
-            center_frame,
-            values=list(TEMPLATES.keys()),
-            variable=self.current_template,
-            command=self.on_template_change,
-            width=260,
-            dropdown_font=("Segoe UI", 12)
+            center_frame, values=list(TEMPLATES.keys()), variable=self.current_template,
+            command=self.on_template_change, width=260, dropdown_font=("Segoe UI", 12)
         )
         self.template_combo.pack(side="left", padx=5)
 
@@ -194,6 +199,17 @@ class AffidavitStudio:
             font=("Segoe UI", 11), fg_color="#475569",
             command=self.compare_with_docx
         ).pack(side="left", padx=2)
+
+        ctk.CTkButton(profile_row, text="Random Test Data", width=125, height=26, font=("Segoe UI", 11), fg_color="#0F766E", command=self.fill_random_test_data).pack(side="left", padx=2)
+
+        stamp_row = ctk.CTkFrame(self.left_pane, fg_color="transparent")
+        stamp_row.pack(fill="x", padx=12, pady=(0, 5))
+        ctk.CTkLabel(stamp_row, text="Stamp area (in):", font=("Segoe UI", 10)).pack(side="left", padx=(0, 5))
+        ctk.CTkLabel(stamp_row, text="W").pack(side="left")
+        ctk.CTkEntry(stamp_row, textvariable=self.stamp_width_var, width=55, height=25).pack(side="left", padx=3)
+        ctk.CTkLabel(stamp_row, text="H").pack(side="left")
+        ctk.CTkEntry(stamp_row, textvariable=self.stamp_height_var, width=55, height=25).pack(side="left", padx=3)
+        ctk.CTkLabel(stamp_row, text="Default 2 × 2 in; confirm local requirements", font=("Segoe UI", 9), text_color="#94A3B8").pack(side="left", padx=5)
 
         # ISM Checkbox
         self.ism_chk = ctk.CTkCheckBox(quick_row, text="ISM (DVBW)", variable=self.use_ism, font=("Segoe UI", 11))
@@ -302,10 +318,15 @@ class AffidavitStudio:
         selected = exact or (partial[0] if len(partial) == 1 else None)
         if selected:
             self.preview_font_combo.set(selected)
+            self.font_search_var.set(selected)
             self._set_preview_font(selected)
         elif partial:
+            prefix = [font for font in partial if font.casefold().startswith(typed.casefold())]
+            candidate = prefix[0] if prefix else partial[0]
             self.preview_font_combo.configure(values=partial)
-            self.preview_font_combo.set(partial[0])
+            self.preview_font_combo.set(candidate)
+            self._set_preview_font(candidate)
+            self.font_search_var.set(candidate)
 
     def on_preview_font_change(self, selected=None):
         """Apply the user's selected installed font to the live text preview."""
@@ -337,6 +358,22 @@ class AffidavitStudio:
         if sz >= 10:
             self.zoom_level.set(sz)
             self.on_preview_font_change()
+
+    def _filter_templates(self, event=None):
+        query = self.template_search_var.get().strip().casefold()
+        names = list(TEMPLATES.keys()) + list(self.mined_templates_library.keys())
+        matches = [name for name in names if query in name.casefold()] if query else names
+        self.template_combo.configure(values=matches or names)
+        if len(matches) == 1:
+            self.template_combo.set(matches[0])
+
+    def _choose_first_template_match(self, event=None):
+        values = list(self.template_combo.cget("values"))
+        if values:
+            chosen = values[0]
+            self.template_combo.set(chosen)
+            self.current_template.set(chosen)
+            self.on_template_change()
 
     def on_template_change(self, event=None):
         """Build dynamic fields for selected template."""
@@ -642,6 +679,47 @@ class AffidavitStudio:
                 self.preview_text.insert("1.0", template_info["template"])
 
         self._schedule_wysiwyg_preview()
+
+    def fill_random_test_data(self):
+        """Fill the active form with synthetic values for rapid preview/export tests."""
+        import random
+        first = ["राम", "सीता", "अमोल", "पूजा", "सचिन", "प्रिया"]
+        last = ["पाटील", "जाधव", "शिंदे", "देशमुख", "मोरे"]
+        places = ["जत", "सांगली", "पुणे", "मिरज", "कवठेमहांकाळ"]
+        today = __import__("datetime").date.today().strftime("%d/%m/%Y")
+        for key, widget in self.field_entries.items():
+            if isinstance(widget, tk.StringVar):
+                widget.set(random.choice(["पुरुष", "स्त्री"]))
+                continue
+            if not hasattr(widget, "delete"):
+                continue
+            if "name" in key:
+                value = f"{random.choice(first)} {random.choice(last)}"
+            elif "mobile" in key or "phone" in key:
+                value = "9" + "".join(random.choice("0123456789") for _ in range(9))
+            elif "age" in key:
+                value = str(random.randint(21, 65))
+            elif "date" in key:
+                value = today
+            elif "occupation" in key:
+                value = random.choice(["शेती", "व्यवसाय", "शिक्षक", "मजुरी"])
+            elif any(token in key for token in ("village", "taluka", "district", "place", "office")):
+                value = random.choice(places)
+            elif "percentage" in key:
+                value = random.choice(["1.3%", "2.0%", "5%"])
+            elif "property" in key or "survey" in key:
+                value = f"{random.randint(100, 999)}/{random.randint(1, 9)}"
+            elif "income" in key:
+                value = str(random.choice([120000, 180000, 240000, 360000]))
+            else:
+                value = f"TEST-{random.randint(100, 999)}"
+            widget.delete(0, "end")
+            widget.insert(0, value)
+        for row in self.heir_entries:
+            values = [f"{random.choice(first)} {random.choice(last)}", str(random.randint(18, 70)), random.choice(["पुत्र", "पत्नी", "मुलगी"])]
+            for widget, value in zip(row, values):
+                widget.delete(0, "end"); widget.insert(0, value)
+        self.update_live_preview()
 
     def fill_sample(self):
         """Populate current template with authentic Marathi sample data."""
