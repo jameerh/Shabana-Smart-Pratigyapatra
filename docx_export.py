@@ -61,15 +61,11 @@ def add_stamp_box(doc, font_name, use_ism, stamp_width=2.0, stamp_height=2.0):
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     set_cell_border(cell, top={'val':'single','sz':'4'}, left={'val':'single','sz':'4'},
                     bottom={'val':'single','sz':'4'}, right={'val':'single','sz':'4'})
+    # The final document reserves a blank stamp area; do not print a fake
+    # stamp image or instructional text into the legal document.
     p = cell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    stamp_text = "स्टॅम्पसाठी जागा"
-    if use_ism and ISM_AVAILABLE:
-        stamp_text = unicode_to_ism(stamp_text)
-    run = p.add_run(stamp_text)
-    run.font.name = font_name
-    run.font.size = Pt(10)
-    run.italic = True
+    p.paragraph_format.space_after = Pt(0)
     return table
 
 def add_header(doc, taluka_name, font_name, use_ism):
