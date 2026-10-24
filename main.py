@@ -596,7 +596,7 @@ class AffidavitStudio:
         path = Path(temp_dir.name) / "live_preview.docx"
         try:
             if template_name in self.mined_templates_library:
-                create_filled_document(self.mined_templates_library[template_name], data, path)
+                create_filled_document(self.mined_templates_library[template_name], data, path, show_empty=True)
             elif template_name in TEMPLATES:
                 info = TEMPLATES[template_name]
                 filled_text = self.preview_text.get("1.0", "end-1c")
