@@ -554,7 +554,10 @@ class AffidavitStudio:
     def get_current_data(self) -> dict:
         data = {}
         for field, widget in self.field_entries.items():
-            if isinstance(widget, ctk.CTkEntry):
+            # Imported templates use ttk.Combobox for name/mobile fields so
+            # history autocomplete can work. Read those values just like entries;
+            # otherwise their placeholders remain unfilled in preview/export.
+            if isinstance(widget, (ctk.CTkEntry, ttk.Combobox)):
                 data[field] = widget.get().strip()
             elif isinstance(widget, tk.StringVar):
                 data[field] = widget.get()
