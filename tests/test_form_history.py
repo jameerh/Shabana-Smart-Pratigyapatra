@@ -29,10 +29,12 @@ class FormHistoryTests(unittest.TestCase):
 
     def test_clear_form_history_deletes_local_history(self):
         from engine.form_history import clear_form_history
-        append_form_history(self.history_file, "Template", {"applicant_full_name": "राम"})
-        self.assertTrue(self.history_file.exists())
-        self.assertTrue(clear_form_history(self.history_file))
-        self.assertFalse(self.history_file.exists())
+        with tempfile.TemporaryDirectory() as td:
+            history_file = Path(td) / "history.json"
+            append_form_history(history_file, "Template", {"applicant_full_name": "राम"})
+            self.assertTrue(history_file.exists())
+            self.assertTrue(clear_form_history(history_file))
+            self.assertFalse(history_file.exists())
 
 
 
