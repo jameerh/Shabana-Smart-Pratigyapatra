@@ -603,7 +603,7 @@ class AffidavitStudio:
                     "", filled_text
                 )
                 if info.get("preview_font_hint"):
-                    export_legacy_text_docx(filled_text, path, self.preview_font_family.get(), include_stamp_preview=True)
+                    export_legacy_text_docx(filled_text, path, self.preview_font_family.get(), include_stamp_preview=True, stamp_width=self.get_stamp_dimensions()[0], stamp_height=self.get_stamp_dimensions()[1])
                 else:
                     export_to_docx(
                         filled_text, str(path), barcode_data=None,
@@ -828,6 +828,16 @@ class AffidavitStudio:
             ne.delete(0, "end"); ae.delete(0, "end"); re_entry.delete(0, "end")
         self.update_live_preview()
 
+    def get_stamp_dimensions(self):
+        """Return validated configurable stamp area dimensions in inches."""
+        try:
+            width, height = float(self.stamp_width_var.get()), float(self.stamp_height_var.get())
+        except (ValueError, TypeError):
+            raise ValueError("Stamp width and height must be numeric inches.")
+        if not (0.5 <= width <= 6.0 and 0.5 <= height <= 8.0):
+            raise ValueError("Stamp dimensions must be width 0.5–6.0 in and height 0.5–8.0 in.")
+        return width, height
+
     def generate_word(self):
         """Export completed document to Word (.docx) with Marathi Unicode / ISM."""
         template_name = self.current_template.get()
@@ -887,7 +897,7 @@ class AffidavitStudio:
                         filled_text, filename, self.preview_font_family.get()
                     )
                 else:
-                    export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get())
+                    export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get(), stamp_width=stamp_width, stamp_height=stamp_height)
             try:
                 append_form_history(self.history_file, template_name, data)
             except Exception as history_error:
@@ -918,7 +928,7 @@ class AffidavitStudio:
                     "", text
                 )
                 if TEMPLATES[template_name].get("preview_font_hint"):
-                    export_legacy_text_docx(text, docx_path, self.preview_font_family.get())
+                    export_legacy_text_docx(text, docx_path, self.preview_font_family.get(), stamp_width=self.get_stamp_dimensions()[0], stamp_height=self.get_stamp_dimensions()[1])
                 else:
                     export_to_docx(text, str(docx_path), barcode_data=None,
                                    taluka_name=data.get("applicant_taluka", ""),
