@@ -27,5 +27,14 @@ class FormHistoryTests(unittest.TestCase):
         self.assertFalse(validate_date("31/02/2026"))
         self.assertTrue(validate_date(""))
 
+    def test_clear_form_history_deletes_local_history(self):
+        from engine.form_history import clear_form_history
+        append_form_history(self.history_file, "Template", {"applicant_full_name": "राम"})
+        self.assertTrue(self.history_file.exists())
+        self.assertTrue(clear_form_history(self.history_file))
+        self.assertFalse(self.history_file.exists())
+
+
+
 if __name__ == "__main__":
     unittest.main()
