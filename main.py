@@ -623,7 +623,11 @@ class AffidavitStudio:
             # previously successful render.
             self.preview_pages_container.pack_forget()
             self.preview_text.pack(fill="both", expand=True, padx=8, pady=8)
-            self._set_preview_status(f"Word-page preview unavailable: {exc}")
+            # Make the fallback visibly distinguishable from a page-accurate
+            # preview so users do not mistake plain text for the final layout.
+            self._set_preview_status(
+                f"Layout preview unavailable — install LibreOffice for accurate A4 rendering: {exc}"
+            )
         finally:
             temp_dir.cleanup()
 
