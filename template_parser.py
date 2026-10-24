@@ -29,7 +29,7 @@ def _iter_paragraphs(container):
                 yield from _iter_paragraphs(cell)
 
 
-def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
+def _replace_paragraph(paragraph, data: dict[str, Any], show_empty: bool = False) -> None:
     """Replace placeholders in a paragraph, retaining its paragraph properties.
 
     Word can split a placeholder over several runs. Rebuilding only the affected
@@ -39,7 +39,7 @@ def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
     original = paragraph.text
     if not PLACEHOLDER_PATTERN.search(original):
         return
-    replacement = replace_placeholder_text(original, data, show_empty=False)
+    replacement = replace_placeholder_text(original, data, show_empty=show_empty)
     if replacement == original:
         return
 
@@ -70,7 +70,7 @@ def _replace_paragraph(paragraph, data: dict[str, Any]) -> None:
         run.font.size = Pt(14)
 
 
-def replace_placeholders(doc, data):
+def replace_placeholders(doc, data, show_empty: bool = False):
     """Replace recognized placeholders throughout a DOCX document."""
     containers = [doc]
     for section in doc.sections:
@@ -84,13 +84,13 @@ def replace_placeholders(doc, data):
             if identity in seen_paragraphs:
                 continue
             seen_paragraphs.add(identity)
-            _replace_paragraph(paragraph, data)
+            _replace_paragraph(paragraph, data, show_empty=show_empty)
     return doc
 
 
-def create_filled_document(template_path, data, output_path):
+def create_filled_document(template_path, data, output_path, show_empty: bool = False):
     """Load a template, replace placeholders, and save the completed document."""
     doc = Document(str(template_path))
-    replace_placeholders(doc, data)
+    replace_placeholders(doc, data, show_empty=show_empty)
     doc.save(str(output_path))
     return str(output_path)
