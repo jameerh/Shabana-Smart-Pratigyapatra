@@ -60,6 +60,44 @@ class SmartDocxImportTests(unittest.TestCase):
         self.assertIn("35", "\\n".join(p.text for p in result.paragraphs))
         self.assertIn("जत", result.tables[0].cell(0, 0).text)
 
+    def test_preview_docx_keeps_empty_placeholders_but_export_removes_them(self):
+        create_filled_document(
+            self.source,
+            {"प्रतिज्ञाकर्त्याचे पूर्ण नाव": "राम पाटील"},
+            self.output,
+            show_empty=True,
+        )
+        preview_doc = Document(self.output)
+        preview_text = "\\n".join(p.text for p in preview_doc.paragraphs)
+        self.assertIn("[वय]", preview_text)
+        self.assertIn("{village}", preview_text)
+
+        create_filled_document(
+            self.source,
+            {"प्रतिज्ञाकर्त्याचे पूर्ण नाव": "राम पाटील"},
+            self.output,
+            show_empty=False,
+        )
+        export_doc = Document(self.output)
+        export_text = "\\n".join(p.text for p in export_doc.paragraphs)
+        self.assertNotIn("[वय]", export_text)
+        self.assertNotIn("{village}", export_text)
+
+    def test_replaces_placeholder_split_across_word_runs(self):
+        doc = Document()
+        paragraph = doc.add_paragraph()
+        paragraph.add_run("नाव: [applicant_")
+        paragraph.add_run("full_name]")
+        doc.save(self.source)
+
+        create_filled_document(
+            self.source,
+            {"applicant_full_name": "सीमा पाटील"},
+            self.output,
+        )
+        result = Document(self.output)
+        self.assertEqual(result.paragraphs[0].text, "नाव: सीमा पाटील")
+
 
 if __name__ == "__main__":
     unittest.main()
