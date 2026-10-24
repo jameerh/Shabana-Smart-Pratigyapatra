@@ -460,7 +460,7 @@ class AffidavitStudio:
                 label = field_labels.get(field, field.replace("_", " ").title())
                 ctk.CTkLabel(card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1").pack(anchor="w", padx=10, pady=(6, 2))
                 suggestions = history_suggestions(self.history_file, field, limit=30) if ("name" in field or "mobile" in field or "phone" in field) else []
-                if suggestions:
+                if ("name" in field or "mobile" in field or "phone" in field):
                     entry = ttk.Combobox(card, values=suggestions, font=("Mangal", 12))
                     entry.configure(state="normal")
                     entry.pack(fill="x", padx=10, pady=(0, 6))
@@ -532,7 +532,7 @@ class AffidavitStudio:
                 card, text=f"{label}:", font=("Mangal", 12), text_color="#CBD5E1"
             ).pack(anchor="w", padx=10, pady=(6, 2))
             suggestions = history_suggestions(self.history_file, key, limit=30) if ("name" in key or "mobile" in key or "phone" in key) else []
-            if suggestions:
+            if ("name" in key or "mobile" in key or "phone" in key):
                 entry = ttk.Combobox(card, values=suggestions, font=("Mangal", 12))
                 entry.configure(state="normal")
                 entry.pack(fill="x", padx=10, pady=(0, 6))
