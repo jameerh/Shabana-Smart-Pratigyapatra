@@ -608,7 +608,7 @@ class AffidavitStudio:
                     export_to_docx(
                         filled_text, str(path), barcode_data=None,
                         taluka_name=data.get("applicant_taluka", ""),
-                        use_ism=self.use_ism.get()
+                        use_ism=self.use_ism.get(), stamp_width=self.get_stamp_dimensions()[0], stamp_height=self.get_stamp_dimensions()[1]
                     )
             else:
                 temp_dir.cleanup()
@@ -894,7 +894,7 @@ class AffidavitStudio:
                     # The DVBW sample is already legacy-encoded; do not pass it
                     # through Unicode-to-ISM conversion a second time.
                     export_legacy_text_docx(
-                        filled_text, filename, self.preview_font_family.get()
+                        filled_text, filename, self.preview_font_family.get(), stamp_width=stamp_width, stamp_height=stamp_height
                     )
                 else:
                     export_to_docx(filled_text, filename, barcode_data=None, taluka_name=taluka, use_ism=self.use_ism.get(), stamp_width=stamp_width, stamp_height=stamp_height)
@@ -932,7 +932,7 @@ class AffidavitStudio:
                 else:
                     export_to_docx(text, str(docx_path), barcode_data=None,
                                    taluka_name=data.get("applicant_taluka", ""),
-                                   use_ism=self.use_ism.get())
+                                   use_ism=self.use_ism.get(), stamp_width=self.get_stamp_dimensions()[0], stamp_height=self.get_stamp_dimensions()[1])
             else:
                 return
             output = convert_docx_to_pdf(docx_path, filename)
