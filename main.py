@@ -22,7 +22,7 @@ from engine.docx_preview_renderer import render_docx_pages, convert_docx_to_pdf,
 from engine.workspace_services import save_applicant_profile, load_applicant_profile, snapshot_template, list_template_snapshots, compare_text_documents
 from template_parser import extract_placeholders, create_filled_document
 from engine.smart_docx_import import extract_docx_fields, infer_label, build_docx_preview, detect_docx_font_family
-from engine.form_history import append_form_history, history_suggestions, validate_mobile, validate_date
+from engine.form_history import append_form_history, history_suggestions, validate_mobile, validate_date, clear_form_history
 from engine.bold_template_miner import mine_docx
 from engine.template_deduplicator import fingerprint_docx, classify_duplicate
 from engine.section_repeater import detect_repeated_person_sections
@@ -194,6 +194,12 @@ class AffidavitStudio:
             font=("Segoe UI", 11), fg_color="#475569",
             command=self.browse_template_history
         ).pack(side="left", padx=2)
+        ctk.CTkButton(
+            profile_row, text="Clear Saved History", width=120, height=26,
+            font=("Segoe UI", 11), fg_color="#7F1D1D", hover_color="#991B1B",
+            command=self.clear_saved_form_history
+        ).pack(side="left", padx=2)
+
         ctk.CTkButton(
             profile_row, text="Compare DOCX", width=100, height=26,
             font=("Segoe UI", 11), fg_color="#475569",
@@ -1017,6 +1023,20 @@ class AffidavitStudio:
             f"सर्व टेम्पलेट्स स्टुडिओमध्ये लोड करण्यात आले आहेत!"
         )
         messagebox.showinfo("बल्क स्कॅनर रिपोर्ट (Scan Report)", msg)
+
+    def clear_saved_form_history(self):
+        """Ask before deleting locally stored applicant suggestions/history."""
+        if not messagebox.askyesno(
+            "Clear saved applicant history",
+            "Delete saved form history and autocomplete suggestions from this computer? This cannot be undone.",
+        ):
+            return
+        try:
+            clear_form_history(self.history_file)
+        except OSError as exc:
+            messagebox.showerror("History deletion failed", str(exc))
+            return
+        messagebox.showinfo("History cleared", "Saved applicant form history has been deleted.")
 
     def browse_template_history(self):
         """Open an archived copy of an imported template from local history."""
